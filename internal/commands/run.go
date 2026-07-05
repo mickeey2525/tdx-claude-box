@@ -91,10 +91,8 @@ func Run(e engine.Engine, args []string) error {
 		fmt.Fprintf(os.Stderr, "tcb: box %q uses TD site %q\n", o.Site, o.TDSite)
 	}
 
-	if o.Rebuild || !e.ImageExists(config.ImageTag) {
-		if err := buildImage(e, o.Rebuild); err != nil {
-			return err
-		}
+	if err := ensureImage(e, o.Rebuild); err != nil {
+		return err
 	}
 
 	workdir, explicitDir, err := resolveWorkdir(o)
@@ -236,11 +234,47 @@ func checkExistingWorkdir(e engine.Engine, name, workdir string, explicit bool, 
 	return nil
 }
 
-// buildImage は埋め込みビルドコンテキストからイメージをビルドする。
+// ensureImage は tcb:latest を用意する。
+//
+// カスタム Dockerfile なし: rebuild またはイメージ未存在のときだけ
+// 埋め込みコンテキストからビルドする。
+// カスタム Dockerfile あり(~/.config/tcb/Dockerfile または TCB_DOCKERFILE):
+// 埋め込みイメージを tcb:base として用意し、その上にカスタム層を重ねた結果を
+// tcb:latest にする。カスタム層は毎回ビルドする(キャッシュが効くので
+// 変更がなければ一瞬。Dockerfile の変更が --rebuild なしで反映される)。
+//
+// rebuild 時は --no-cache でビルドし、@latest のパッケージを実際に更新する。
+func ensureImage(e engine.Engine, rebuild bool) error {
+	custom, err := customDockerfile()
+	if err != nil {
+		return err
+	}
+
+	if custom == "" {
+		if !rebuild && e.ImageExists(config.ImageTag) {
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "tcb: building image %s\n", config.ImageTag)
+		return buildEmbedded(e, config.ImageTag, rebuild)
+	}
+
+	if rebuild || !e.ImageExists(config.BaseImageTag) {
+		fmt.Fprintf(os.Stderr, "tcb: building base image %s\n", config.BaseImageTag)
+		if err := buildEmbedded(e, config.BaseImageTag, rebuild); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(os.Stderr, "tcb: building %s from custom Dockerfile %s\n", config.ImageTag, custom)
+	return e.Build(filepath.Dir(custom), config.ImageTag, engine.BuildOpts{
+		NoCache:    rebuild,
+		Dockerfile: custom,
+	})
+}
+
+// buildEmbedded は埋め込みビルドコンテキストからイメージをビルドする。
 // コンテキストはユーザーキャッシュ配下に置く。macOS の TMPDIR(/var/folders)は
 // Apple container のビルダーから読めないため使わない。
-// rebuild 時は --no-cache でビルドし、@latest のパッケージを実際に更新する。
-func buildImage(e engine.Engine, rebuild bool) error {
+func buildEmbedded(e engine.Engine, tag string, noCache bool) error {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return fmt.Errorf("resolve cache directory: %w", err)
@@ -252,13 +286,40 @@ func buildImage(e engine.Engine, rebuild bool) error {
 	if err := image.WriteBuildContext(dir); err != nil {
 		return err
 	}
-	opts := engine.BuildOpts{NoCache: rebuild, BuildArgs: map[string]string{}}
+	opts := engine.BuildOpts{NoCache: noCache, BuildArgs: map[string]string{}}
 	if v := os.Getenv("TCB_TDX_VERSION"); v != "" {
 		opts.BuildArgs["TDX_VERSION"] = v
 	}
 	if v := os.Getenv("TCB_CLAUDE_CODE_VERSION"); v != "" {
 		opts.BuildArgs["CLAUDE_CODE_VERSION"] = v
 	}
-	fmt.Fprintf(os.Stderr, "tcb: building image %s\n", config.ImageTag)
-	return e.Build(dir, config.ImageTag, opts)
+	return e.Build(dir, tag, opts)
+}
+
+// customDockerfile はユーザーのカスタム Dockerfile のパスを返す(なければ空)。
+// TCB_DOCKERFILE 環境変数が最優先("none" で明示的に無効化)、
+// 次に ~/.config/tcb/Dockerfile が存在すれば使う。
+func customDockerfile() (string, error) {
+	if v, ok := os.LookupEnv("TCB_DOCKERFILE"); ok {
+		if v == "" || v == "none" {
+			return "", nil
+		}
+		abs, err := filepath.Abs(v)
+		if err != nil {
+			return "", fmt.Errorf("TCB_DOCKERFILE: %w", err)
+		}
+		if _, err := os.Stat(abs); err != nil {
+			return "", fmt.Errorf("TCB_DOCKERFILE: %w", err)
+		}
+		return abs, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", nil
+	}
+	p := filepath.Join(home, ".config", "tcb", "Dockerfile")
+	if _, err := os.Stat(p); err != nil {
+		return "", nil
+	}
+	return p, nil
 }

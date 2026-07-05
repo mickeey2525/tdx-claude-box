@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -82,5 +84,30 @@ func TestParseRunArgsTDSite(t *testing.T) {
 
 	if _, err := parseRunArgs([]string{"us01-7060", "--site"}); err == nil {
 		t.Error("expected error for --site without value")
+	}
+}
+
+func TestCustomDockerfile(t *testing.T) {
+	dir := t.TempDir()
+	df := filepath.Join(dir, "Dockerfile.custom")
+	if err := os.WriteFile(df, []byte("FROM tcb:base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("TCB_DOCKERFILE", df)
+	got, err := customDockerfile()
+	if err != nil || got != df {
+		t.Errorf("customDockerfile() = %q, %v; want %q, nil", got, err, df)
+	}
+
+	t.Setenv("TCB_DOCKERFILE", "none")
+	got, err = customDockerfile()
+	if err != nil || got != "" {
+		t.Errorf("customDockerfile() with none = %q, %v; want empty, nil", got, err)
+	}
+
+	t.Setenv("TCB_DOCKERFILE", filepath.Join(dir, "missing"))
+	if _, err := customDockerfile(); err == nil {
+		t.Error("expected error for missing TCB_DOCKERFILE path")
 	}
 }

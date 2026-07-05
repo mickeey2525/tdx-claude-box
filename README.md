@@ -73,6 +73,27 @@ box 専用ボリュームに永続化されるので、box を消すまで再入
 キーを差し替えたいときは `tcb shell <site>` で入って `~/.config/tdx/.env` を
 編集する。
 
+## イメージのカスタマイズ(ツールの追加)
+
+`~/.config/tcb/Dockerfile` を置くと、標準イメージ(`tcb:base`)の上に自分の
+レイヤーを重ねられる(パスは `TCB_DOCKERFILE` 環境変数でも指定可能。
+`TCB_DOCKERFILE=none` で一時的に無効化):
+
+```dockerfile
+FROM tcb:base
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        postgresql-client awscli \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+- ビルドコンテキストはこの Dockerfile のあるディレクトリ(`COPY` も使える)
+- カスタム層は `tcb run` のたびにビルドされる(キャッシュが効くので変更が
+  なければ一瞬)。Dockerfile を編集したら次の `tcb run` で新イメージになる
+- ただし**既存の box は古いイメージのまま動き続ける**。反映するには
+  `tcb rm <box>` して作り直す(認証を残すなら `--keep-volume`)
+- ベースの `CMD`(tcb-boot)と `tcb` ユーザーは tcb の動作に必要なので
+  上書きしないこと
+
 ## 隔離の仕組み
 
 - site ごとに名前付きボリューム `tcb-<site>-home` を `/home/tcb` にマウント

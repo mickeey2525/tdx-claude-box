@@ -68,6 +68,8 @@ type BuildOpts struct {
 	// 実際に更新するには必須(キャッシュが効くと古い install 層が再利用される)。
 	NoCache   bool
 	BuildArgs map[string]string
+	// Dockerfile は Dockerfile のパス。空なら <ctxDir>/Dockerfile。
+	Dockerfile string
 }
 
 // ExecOpts はコンテナ内での対話コマンド実行のオプション。

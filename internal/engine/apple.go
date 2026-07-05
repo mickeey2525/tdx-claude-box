@@ -72,8 +72,12 @@ func (a *Apple) ImageExists(tag string) bool {
 }
 
 func (a *Apple) Build(ctxDir, tag string, o BuildOpts) error {
-	// container build は -f を省略すると CWD 基準で Dockerfile を探すため明示する
-	args := []string{"build", "-t", tag, "-f", filepath.Join(ctxDir, "Dockerfile")}
+	// container build は -f を省略すると CWD 基準で Dockerfile を探すため常に明示する
+	dockerfile := o.Dockerfile
+	if dockerfile == "" {
+		dockerfile = filepath.Join(ctxDir, "Dockerfile")
+	}
+	args := []string{"build", "-t", tag, "-f", dockerfile}
 	if o.NoCache {
 		args = append(args, "--no-cache")
 	}

@@ -37,6 +37,9 @@ func (d *Docker) ImageExists(tag string) bool {
 
 func (d *Docker) Build(ctxDir, tag string, o BuildOpts) error {
 	args := []string{"build", "-t", tag}
+	if o.Dockerfile != "" {
+		args = append(args, "-f", o.Dockerfile)
+	}
 	if o.NoCache {
 		args = append(args, "--no-cache")
 	}

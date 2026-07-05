@@ -70,7 +70,9 @@
   `@anthropic-ai/claude-code` と `@treasuredata/tdx` を既定 `@latest` でインストール
   (+ git, ripgrep 等 Claude Code が使う最低限のツール)。
   `--rebuild` は --no-cache でビルドするため最新に追従できる。
-  固定したい場合は `TCB_TDX_VERSION` / `TCB_CLAUDE_CODE_VERSION` で build-arg を上書き
+  固定したい場合は `TCB_TDX_VERSION` / `TCB_CLAUDE_CODE_VERSION` で build-arg を上書き。
+  ツールを追加したい場合は `~/.config/tcb/Dockerfile`(FROM tcb:base)で
+  カスタム層を重ねられる(カスタム層は run のたびにキャッシュ付きビルド)
 - **隔離の単位 = site**:
   - 名前付きボリューム `tcb-<site>-home` を `/home/tcb` にマウント
     → `~/.claude`・`~/.config/tdx`・認証情報・プラグインが site ごとに完全分離

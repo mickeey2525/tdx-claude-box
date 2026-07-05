@@ -8,8 +8,12 @@ import (
 )
 
 const (
-	// ImageTag は tcb が使うコンテナイメージのタグ。
+	// ImageTag は tcb がコンテナ起動に使うイメージのタグ。
 	ImageTag = "tcb:latest"
+	// BaseImageTag は埋め込み Dockerfile から作るベースイメージのタグ。
+	// カスタム Dockerfile(~/.config/tcb/Dockerfile)がある場合、それは
+	// FROM tcb:base で書き、ビルド結果が ImageTag になる。
+	BaseImageTag = "tcb:base"
 
 	// LabelSite / LabelWorkdir / LabelTDSite は tcb 管理リソースに付けるラベルキー。
 	// LabelSite は box 名(隔離の単位)、LabelTDSite は実際の TD site

@@ -33,6 +33,12 @@ func Doctor(backendName string, w io.Writer) error {
 	} else {
 		fmt.Fprintf(w, "- image %s: not built yet (built automatically on first 'tcb run')\n", config.ImageTag)
 	}
+	if custom, err := customDockerfile(); err != nil {
+		fmt.Fprintf(w, "✗ custom Dockerfile: %v\n", err)
+		ok = false
+	} else if custom != "" {
+		fmt.Fprintf(w, "✓ custom Dockerfile: %s (layered on %s)\n", custom, config.BaseImageTag)
+	}
 
 	boxes, err := e.ListBoxes(config.LabelSite, config.LabelWorkdir)
 	if err != nil {

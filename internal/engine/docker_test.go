@@ -139,3 +139,15 @@ func TestDockerBuildNoCacheAndArgs(t *testing.T) {
 		t.Errorf("args = %v, want %v", r.calls, want)
 	}
 }
+
+func TestDockerBuildCustomDockerfile(t *testing.T) {
+	r := &fakeRunner{}
+	c := NewDockerWithRunner(r)
+	if err := c.Build("/ctx", "tcb:latest", BuildOpts{Dockerfile: "/cfg/Dockerfile"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"build", "-t", "tcb:latest", "-f", "/cfg/Dockerfile", "/ctx"}
+	if len(r.calls) != 1 || !reflect.DeepEqual(r.calls[0], want) {
+		t.Errorf("args = %v, want %v", r.calls, want)
+	}
+}
