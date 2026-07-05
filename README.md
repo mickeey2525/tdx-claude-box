@@ -99,6 +99,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 - site ごとに名前付きボリューム `tcb-<site>-home` を `/home/tcb` にマウント
   → `~/.claude`・`~/.config/tdx`・認証情報・プラグインが site ごとに完全分離
 - 作業ディレクトリは既定で `~/tcb/<site>`(`--dir` で変更可)を `/work` にマウント
+- `tcb run` を実行したディレクトリに `.claude/settings.json` があれば、
+  box 側の `/work/.claude/settings.json` へ同期する。`settings.local.json` は
+  site ごとに `tdx claude` が生成するため同期しない
 - コンテナは 1 site 1 個(`tcb-<site>`)。同じ site の2セッション目は exec で同居
 - ガードレール:
   - HOME ボリューム内のマーカーファイル(`~/.tcb-site`)とボリュームラベルで

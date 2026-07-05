@@ -78,6 +78,9 @@
     → `~/.claude`・`~/.config/tdx`・認証情報・プラグインが site ごとに完全分離
   - 作業ディレクトリ: 既定 `~/tcb/<site>` をホスト側に作り `/work` にバインドマウント。
     `--dir <path>` で任意の調査ディレクトリを指定可能
+  - `tcb run` の実行ディレクトリに `.claude/settings.json` がある場合は
+    `/work/.claude/settings.json` へ同期する。site 固有に書き換わる
+    `settings.local.json` は同期せず、従来通り workdir 分離に任せる
 - **コンテナ命名**: `tcb-<site>`(1 site 1 コンテナ。同 site の2重起動は `docker exec` で同居)
 - **エントリポイント**: 初回は `tdx auth setup` へ誘導 → `tdx use site <site> --default`
   (コンテナ内 HOME なので --default で安全)→ `tdx claude`

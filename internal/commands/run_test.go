@@ -111,3 +111,104 @@ func TestCustomDockerfile(t *testing.T) {
 		t.Error("expected error for missing TCB_DOCKERFILE path")
 	}
 }
+
+func TestSyncProjectSettingsCopiesSettingsJSON(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, ".claude", "settings.json"), []byte("{\"permissions\":{}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, ".claude", "settings.local.json"), []byte("{\"site\":\"host\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncProjectSettings(src, dst); err != nil {
+		t.Fatalf("syncProjectSettings() error: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dst, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("settings.json was not copied: %v", err)
+	}
+	if string(got) != "{\"permissions\":{}}\n" {
+		t.Errorf("settings.json = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".claude", "settings.local.json")); !os.IsNotExist(err) {
+		t.Errorf("settings.local.json must not be copied; stat err = %v", err)
+	}
+}
+
+func TestSyncProjectSettingsNoopWhenSameDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncProjectSettings(dir, dir); err != nil {
+		t.Fatalf("syncProjectSettings() error: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "{}\n" {
+		t.Errorf("settings.json changed to %q", got)
+	}
+}
+
+func TestSyncProjectSettingsRemovesPreviousManagedSettings(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	dstSettings := filepath.Join(dst, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(dstSettings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dstSettings, []byte("{\"old\":true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectSettingsMarker(dstSettings), []byte(filepath.Join(src, ".claude", "settings.json")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncProjectSettings(src, dst); err != nil {
+		t.Fatalf("syncProjectSettings() error: %v", err)
+	}
+
+	if _, err := os.Stat(dstSettings); !os.IsNotExist(err) {
+		t.Errorf("managed settings.json should be removed; stat err = %v", err)
+	}
+	if _, err := os.Stat(projectSettingsMarker(dstSettings)); !os.IsNotExist(err) {
+		t.Errorf("managed marker should be removed; stat err = %v", err)
+	}
+}
+
+func TestSyncProjectSettingsKeepsUnmanagedSettingsWhenSourceMissing(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	dstSettings := filepath.Join(dst, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(dstSettings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dstSettings, []byte("{\"manual\":true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncProjectSettings(src, dst); err != nil {
+		t.Fatalf("syncProjectSettings() error: %v", err)
+	}
+
+	got, err := os.ReadFile(dstSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "{\"manual\":true}\n" {
+		t.Errorf("unmanaged settings.json changed to %q", got)
+	}
+}

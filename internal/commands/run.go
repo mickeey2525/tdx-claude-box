@@ -13,6 +13,10 @@ import (
 	"github.com/mickeey2525/tdx-claude-box/internal/site"
 )
 
+var projectSettingsFiles = []string{
+	filepath.Join(".claude", "settings.json"),
+}
+
 type runOptions struct {
 	Site string
 	// TDSite は tdx use site に渡す実際の TD site。空なら Site と同じ。
@@ -99,6 +103,9 @@ func Run(e engine.Engine, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		return fmt.Errorf("create workdir: %w", err)
+	}
 
 	if err := ensureVolume(e, o.Site); err != nil {
 		return err
@@ -111,9 +118,6 @@ func Run(e engine.Engine, args []string) error {
 	}
 	switch state {
 	case "":
-		if err := os.MkdirAll(workdir, 0o755); err != nil {
-			return fmt.Errorf("create workdir: %w", err)
-		}
 		fmt.Fprintf(os.Stderr, "tcb: creating box %s (workdir: %s)\n", name, workdir)
 		err = e.RunDetached(engine.RunOpts{
 			Name:     name,
@@ -153,6 +157,14 @@ func Run(e engine.Engine, args []string) error {
 		}
 	}
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve current directory: %w", err)
+	}
+	if err := syncProjectSettings(cwd, workdir); err != nil {
+		return fmt.Errorf("sync project settings: %w", err)
+	}
+
 	command := append([]string{config.EntryCommand}, o.Passthrough...)
 	return e.ExecInteractive(sessionExecOpts(name, command))
 }
@@ -180,6 +192,79 @@ func resolveWorkdir(o runOptions) (dir string, explicit bool, err error) {
 	}
 	dir, err = config.DefaultWorkdir(o.Site)
 	return dir, false, err
+}
+
+// syncProjectSettings は tcb を実行したプロジェクトの共有設定だけを box 側 workdir へ反映する。
+// tdx claude が site ごとに書く settings.local.json は同期しない。
+func syncProjectSettings(srcDir, workdir string) error {
+	srcAbs, err := filepath.Abs(srcDir)
+	if err != nil {
+		return fmt.Errorf("resolve source directory: %w", err)
+	}
+	dstAbs, err := filepath.Abs(workdir)
+	if err != nil {
+		return fmt.Errorf("resolve workdir: %w", err)
+	}
+	if filepath.Clean(srcAbs) == filepath.Clean(dstAbs) {
+		return nil
+	}
+
+	for _, rel := range projectSettingsFiles {
+		if err := syncProjectSettingsFile(srcAbs, dstAbs, rel); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func syncProjectSettingsFile(srcDir, workdir, rel string) error {
+	src := filepath.Join(srcDir, rel)
+	info, err := os.Stat(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return removeManagedProjectSettings(workdir, rel)
+		}
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory", src)
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	dst := filepath.Join(workdir, rel)
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(projectSettingsMarker(dst), []byte(src+"\n"), 0o644)
+}
+
+func removeManagedProjectSettings(workdir, rel string) error {
+	dst := filepath.Join(workdir, rel)
+	marker := projectSettingsMarker(dst)
+	if _, err := os.Stat(marker); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func projectSettingsMarker(settingsPath string) string {
+	return filepath.Join(filepath.Dir(settingsPath), ".tcb-settings-source")
 }
 
 // ensureVolume は site 用 HOME ボリュームを検証つきで用意する。
