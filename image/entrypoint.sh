@@ -11,7 +11,7 @@ if [[ -f "$marker" ]]; then
     existing="$(cat "$marker")"
     if [[ "$existing" != "$TCB_SITE" ]]; then
         echo "tcb: this home volume belongs to site '$existing', refusing to start as '$TCB_SITE'" >&2
-        echo "tcb: remove the box with 'tcb rm $TCB_SITE --volumes' if you really want to reuse it" >&2
+        echo "tcb: remove the box with 'tcb rm $TCB_SITE' if you really want to reuse it" >&2
         exit 1
     fi
 else
@@ -25,7 +25,7 @@ if [[ -f "$td_marker" ]]; then
     existing_td="$(cat "$td_marker")"
     if [[ "$existing_td" != "$td_site" ]]; then
         echo "tcb: this box's volume was set up for TD site '$existing_td', not '$td_site'" >&2
-        echo "tcb: credentials are site-specific; 'tcb rm $TCB_SITE --volumes' to start over" >&2
+        echo "tcb: credentials are site-specific; 'tcb rm $TCB_SITE' to start over" >&2
         exit 1
     fi
 else

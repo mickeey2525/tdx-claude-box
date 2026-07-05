@@ -61,26 +61,12 @@ func existingBoxRunner() *fakeRunner {
 	return r
 }
 
-func TestRmVolumesRequiresConfirmation(t *testing.T) {
+func TestRmDeletesVolumeAfterConfirmation(t *testing.T) {
 	r := existingBoxRunner()
 	e := engine.NewDockerWithRunner(r)
 	var out bytes.Buffer
 
-	err := Rm(e, []string{"ap01", "--volumes"}, strings.NewReader("nope\n"), &out)
-	if err == nil || !strings.Contains(err.Error(), "aborted") {
-		t.Fatalf("err = %v, want aborted", err)
-	}
-	if r.called("rm") || r.called("volume", "rm") {
-		t.Errorf("nothing should be removed on aborted confirmation; calls: %v", r.calls)
-	}
-}
-
-func TestRmVolumesConfirmed(t *testing.T) {
-	r := existingBoxRunner()
-	e := engine.NewDockerWithRunner(r)
-	var out bytes.Buffer
-
-	err := Rm(e, []string{"ap01", "--volumes"}, strings.NewReader("ap01\n"), &out)
+	err := Rm(e, []string{"ap01"}, strings.NewReader("y\n"), &out)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,16 +74,36 @@ func TestRmVolumesConfirmed(t *testing.T) {
 		t.Errorf("container should be removed; calls: %v", r.calls)
 	}
 	if !r.called("volume", "rm", "tcb-ap01-home") {
-		t.Errorf("volume should be removed; calls: %v", r.calls)
+		t.Errorf("volume should be removed by default; calls: %v", r.calls)
+	}
+	if !strings.Contains(out.String(), "WARNING") {
+		t.Errorf("warning should be shown before deleting the volume; got %q", out.String())
 	}
 }
 
-func TestRmWithoutVolumesKeepsVolume(t *testing.T) {
+func TestRmAbortsWithoutConfirmation(t *testing.T) {
+	for _, input := range []string{"n\n", "\n", ""} {
+		r := existingBoxRunner()
+		e := engine.NewDockerWithRunner(r)
+		var out bytes.Buffer
+
+		err := Rm(e, []string{"ap01"}, strings.NewReader(input), &out)
+		if err == nil || !strings.Contains(err.Error(), "aborted") {
+			t.Fatalf("input %q: err = %v, want aborted", input, err)
+		}
+		if r.called("rm") || r.called("volume", "rm") {
+			t.Errorf("input %q: nothing should be removed; calls: %v", input, r.calls)
+		}
+	}
+}
+
+func TestRmKeepVolume(t *testing.T) {
 	r := existingBoxRunner()
 	e := engine.NewDockerWithRunner(r)
 	var out bytes.Buffer
 
-	err := Rm(e, []string{"ap01"}, strings.NewReader(""), &out)
+	// --keep-volume は認証情報を消さないので確認プロンプトなしで進む
+	err := Rm(e, []string{"ap01", "--keep-volume"}, strings.NewReader(""), &out)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,9 +111,23 @@ func TestRmWithoutVolumesKeepsVolume(t *testing.T) {
 		t.Errorf("container should be removed; calls: %v", r.calls)
 	}
 	if r.called("volume", "rm") {
-		t.Errorf("volume must be kept without --volumes; calls: %v", r.calls)
+		t.Errorf("volume must be kept with --keep-volume; calls: %v", r.calls)
 	}
 	if !strings.Contains(out.String(), "kept volume") {
 		t.Errorf("output should mention kept volume; got %q", out.String())
+	}
+}
+
+func TestRmForceSkipsPrompt(t *testing.T) {
+	r := existingBoxRunner()
+	e := engine.NewDockerWithRunner(r)
+	var out bytes.Buffer
+
+	err := Rm(e, []string{"ap01", "--force"}, strings.NewReader(""), &out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r.called("rm", "--force", "tcb-ap01") || !r.called("volume", "rm", "tcb-ap01-home") {
+		t.Errorf("container and volume should be removed; calls: %v", r.calls)
 	}
 }

@@ -96,8 +96,9 @@ tcb ls
 tcb shell <site>
     box に bash で入る(デバッグ・auth setup 用)
 tcb stop <site>
-tcb rm <site> [--volumes]
-    コンテナ削除。--volumes で HOME ボリュームごと削除(認証情報も消える旨を確認プロンプト)
+tcb rm <box> [--keep-volume] [--force]
+    box を削除。既定でコンテナと HOME ボリュームの両方を消す
+    (認証情報も消える旨を警告して確認プロンプト)。--keep-volume でボリューム保持
 tcb doctor
     docker の有無、イメージ、各 box の状態、site マーカーの整合性を診断
 ```

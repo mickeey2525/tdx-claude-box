@@ -28,8 +28,10 @@ Commands:
         Open a bash shell in the box (for debugging / tdx auth setup).
   stop <site>
         Stop the box container (keeps the home volume).
-  rm <site> [--volumes]
-        Remove the box container. --volumes also deletes credentials.
+  rm <box> [--keep-volume] [--force]
+        Remove the box container AND its home volume (credentials!) after
+        a confirmation prompt. --keep-volume preserves the volume,
+        --force skips the prompt.
   doctor
         Diagnose backends, image, boxes and volumes.
 

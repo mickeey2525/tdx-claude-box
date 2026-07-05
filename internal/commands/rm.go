@@ -11,15 +11,20 @@ import (
 	"github.com/mickeey2525/tdx-claude-box/internal/site"
 )
 
-// Rm は box のコンテナを削除する。--volumes 指定時は HOME ボリューム
-// (tdx の認証情報・~/.claude を含む)も確認プロンプトの上で削除する。
+// Rm は box を削除する。既定でコンテナと HOME ボリューム
+// (tdx の API キー・~/.claude を含む)の両方を消す。ボリューム削除の前には
+// 警告と確認プロンプトを出す。--keep-volume でボリュームだけ残せる。
 func Rm(e engine.Engine, args []string, stdin io.Reader, stdout io.Writer) error {
 	var siteName string
-	var withVolumes bool
+	var keepVolume, force bool
 	for _, a := range args {
 		switch {
+		case a == "--keep-volume":
+			keepVolume = true
 		case a == "--volumes":
-			withVolumes = true
+			// 旧フラグ。ボリューム削除は現在の既定動作なので受け付けるだけ
+		case a == "-f" || a == "--force":
+			force = true
 		case strings.HasPrefix(a, "-"):
 			return fmt.Errorf("unknown flag %q for rm", a)
 		case siteName == "":
@@ -29,7 +34,7 @@ func Rm(e engine.Engine, args []string, stdin io.Reader, stdout io.Writer) error
 		}
 	}
 	if siteName == "" {
-		return fmt.Errorf("usage: tcb rm <site> [--volumes]")
+		return fmt.Errorf("usage: tcb rm <box> [--keep-volume] [--force]")
 	}
 	if err := site.Validate(siteName); err != nil {
 		return err
@@ -50,11 +55,17 @@ func Rm(e engine.Engine, args []string, stdin io.Reader, stdout io.Writer) error
 		return fmt.Errorf("no box for site %q", siteName)
 	}
 
-	if withVolumes && volumeExists {
-		fmt.Fprintf(stdout, "This will delete volume %s including tdx credentials and ~/.claude for site %q.\n", volume, siteName)
-		fmt.Fprintf(stdout, "Type the site name to confirm: ")
+	deleteVolume := volumeExists && !keepVolume
+	if deleteVolume && !force {
+		fmt.Fprintf(stdout, "WARNING: volume %s will be deleted too.\n", volume)
+		fmt.Fprintf(stdout, "It holds the tdx API key and ~/.claude for box %q.\n", siteName)
+		fmt.Fprintf(stdout, "(use --keep-volume to keep credentials) Continue? [y/N]: ")
 		scanner := bufio.NewScanner(stdin)
-		if !scanner.Scan() || strings.TrimSpace(scanner.Text()) != siteName {
+		answer := ""
+		if scanner.Scan() {
+			answer = strings.TrimSpace(scanner.Text())
+		}
+		if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {
 			return fmt.Errorf("aborted")
 		}
 	}
@@ -65,13 +76,13 @@ func Rm(e engine.Engine, args []string, stdin io.Reader, stdout io.Writer) error
 		}
 		fmt.Fprintf(stdout, "removed container %s\n", name)
 	}
-	if withVolumes && volumeExists {
+	if deleteVolume {
 		if err := e.VolumeRemove(volume); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "removed volume %s\n", volume)
 	} else if volumeExists {
-		fmt.Fprintf(stdout, "kept volume %s (use --volumes to delete credentials too)\n", volume)
+		fmt.Fprintf(stdout, "kept volume %s (credentials preserved; reused by the next 'tcb run %s')\n", volume, siteName)
 	}
 	return nil
 }
