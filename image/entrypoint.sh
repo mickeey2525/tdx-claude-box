@@ -18,6 +18,20 @@ else
     echo "$TCB_SITE" > "$marker"
 fi
 
+# TD site も検証する。ボリューム内の API キーは site 固有なので、
+# 同じ box 名のまま別 TD site に切り替えるのは事故のもと。
+td_marker="$HOME/.tcb-td-site"
+if [[ -f "$td_marker" ]]; then
+    existing_td="$(cat "$td_marker")"
+    if [[ "$existing_td" != "$td_site" ]]; then
+        echo "tcb: this box's volume was set up for TD site '$existing_td', not '$td_site'" >&2
+        echo "tcb: credentials are site-specific; 'tcb rm $TCB_SITE --volumes' to start over" >&2
+        exit 1
+    fi
+else
+    echo "$td_site" > "$td_marker"
+fi
+
 # box 名(TCB_SITE)と TD site(TCB_TD_SITE)は別物にできる。
 # 例: box 'us01-7060' が TD site 'us01' を使う(--site us01)。
 # コンテナ内 HOME は box 専用なので --default で安全。
@@ -36,12 +50,15 @@ if ! grep -qs '^TDX_API_KEY=' "$env_file"; then
     printf "    Paste API key for %s: " "$td_site"
     read -rs api_key
     echo
+    # 端末からの貼り付けで紛れ込みうる CR・前後空白を除去
+    api_key="$(printf '%s' "$api_key" | tr -d '\r' | xargs)"
     if [[ -z "$api_key" ]]; then
         echo "tcb: no API key entered" >&2
         exit 1
     fi
     echo "    Validating..."
-    if ! TDX_API_KEY="$api_key" tdx auth status 2>&1 | grep -q "API key is valid"; then
+    # tdx auth status は成功時 0 / 失敗時 1 を返す(出力はそのまま見せる)
+    if ! TDX_API_KEY="$api_key" tdx auth status; then
         echo "tcb: API key validation failed for TD site '$td_site'; nothing saved" >&2
         exit 1
     fi

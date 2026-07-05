@@ -18,3 +18,19 @@ func TestValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestDeriveTDSite(t *testing.T) {
+	cases := map[string]string{
+		"us01":       "us01",
+		"us01-7060":  "us01",
+		"ap01-casex": "ap01",
+		"eu01":       "eu01",
+		"myproject":  "myproject", // 公式 site 形式でなければそのまま
+		"us019":      "us019",     // prefix 一致だけでは切らない
+	}
+	for box, want := range cases {
+		if got := DeriveTDSite(box); got != want {
+			t.Errorf("DeriveTDSite(%q) = %q, want %q", box, got, want)
+		}
+	}
+}

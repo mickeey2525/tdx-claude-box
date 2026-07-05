@@ -81,10 +81,14 @@ func Run(e engine.Engine, args []string) error {
 	}
 	explicitTDSite := o.TDSite != ""
 	if o.TDSite == "" {
-		o.TDSite = o.Site
+		// box 名 "us01-7060" のような形式なら TD site "us01" を自動導出する
+		o.TDSite = site.DeriveTDSite(o.Site)
 	}
 	if err := site.Validate(o.TDSite); err != nil {
 		return fmt.Errorf("--site: %w", err)
+	}
+	if o.TDSite != o.Site {
+		fmt.Fprintf(os.Stderr, "tcb: box %q uses TD site %q\n", o.Site, o.TDSite)
 	}
 
 	if o.Rebuild || !e.ImageExists(config.ImageTag) {
@@ -209,7 +213,7 @@ func checkExistingTDSite(e engine.Engine, name, tdSite string, explicit bool, bo
 		return err
 	}
 	if current == "" {
-		current = boxName // ラベルがない旧コンテナは box 名 = TD site
+		current = site.DeriveTDSite(boxName) // ラベルがない旧コンテナは box 名から導出
 	}
 	if current != tdSite {
 		return fmt.Errorf("box %s already uses TD site %q; run 'tcb rm %s' first to switch to %q", name, current, boxName, tdSite)
