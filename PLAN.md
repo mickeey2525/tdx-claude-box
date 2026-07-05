@@ -33,6 +33,18 @@
 - tdx のインストール: npm パッケージ `@treasuredata/tdx`(mise の node 24 配下で確認)
 - ホストの利用可能ランタイム: Docker 29.3.1(/usr/local/bin/docker)と
   Apple container 0.4.1(/usr/local/bin/container)。podman なし
+- Apple container 0.4.1 の実機で確認した Docker との差分:
+  - inspect / list は Go テンプレート非対応。`--format json` をパースする
+  - `--hostname` なし(ホスト名は常にコンテナ名)、`--init` なし(VM 内の vminitd が init)
+  - **名前付きボリュームにイメージ内容の copy-up がない**(root 所有の空 ext4)
+    → メインプロセスを root の `tcb-boot` にして所有権と .bashrc を初期化する設計に変更
+  - `container build` は `-f` 省略時 CWD 基準で Dockerfile を探す。さらに
+    **ビルドコンテキストが macOS の TMPDIR(/var/folders)配下だと読めない**
+    → ビルドコンテキストは `~/Library/Caches/tcb/build` に展開
+  - `exec -u <user>` はユーザー名解決するが HOME を設定しない → exec 時に明示
+  - `volume create` は名前をオプションより先に書く必要がある
+  - コンテナ削除は `delete --force`、状態は "running"/"stopped"、
+    存在しないコンテナの inspect は空配列(exit 0)
 - 認証はホストでは Keychain 保存。**Linux コンテナ内では Keychain が使えない**ため、
   コンテナ内で `tdx auth setup` を実行して HOME ボリュームに永続化するか、
   `~/.config/tdx/.env` 相当を注入する必要がある(要検証: コンテナ内での認証情報の保存先)
@@ -47,15 +59,18 @@
 
 **非ゴール(初期リリースでは)**
 - claude-settings-switcher との統合(将来的に box 一覧表示くらいはあり得るが疎結合を保つ)
-- Apple container バックエンド(M2 以降。まず Docker のみ)
 - 社内配布・公式化
 
 ## アーキテクチャ
 
-- **バックエンド**: Docker(`docker` CLI を子プロセスで叩く。Docker SDK 依存は持たない)
-- **イメージ**: リポジトリ内 Dockerfile。`node:24-slim` ベースに
-  `@anthropic-ai/claude-code` と `@treasuredata/tdx` を**バージョン固定**でインストール
-  (+ git, ripgrep 等 Claude Code が使う最低限のツール)
+- **バックエンド**: Docker と Apple container の2実装(CLI を子プロセスで叩く。SDK 依存なし)。
+  `internal/engine` の Engine インターフェースに抽象化し、自動検出(docker 優先)または
+  `--backend docker|apple` / `TCB_BACKEND` で選択
+- **イメージ**: リポジトリ内 Dockerfile(バイナリに埋め込み)。`node:24-slim` ベースに
+  `@anthropic-ai/claude-code` と `@treasuredata/tdx` を既定 `@latest` でインストール
+  (+ git, ripgrep 等 Claude Code が使う最低限のツール)。
+  `--rebuild` は --no-cache でビルドするため最新に追従できる。
+  固定したい場合は `TCB_TDX_VERSION` / `TCB_CLAUDE_CODE_VERSION` で build-arg を上書き
 - **隔離の単位 = site**:
   - 名前付きボリューム `tcb-<site>-home` を `/home/tcb` にマウント
     → `~/.claude`・`~/.config/tdx`・認証情報・プラグインが site ごとに完全分離
@@ -89,28 +104,33 @@ tcb doctor
 
 ## 実装方針
 
-claude-settings-switcher と同じツールチェーン(慣れているため):
+配布のしやすさを優先して **Go**(単一バイナリ、`go install` / GitHub Releases 配布):
 
-- TypeScript、Node >= 24 ネイティブ実行(ビルドなし、相対 import は `.ts` 拡張子、
-  erasableSyntaxOnly)。CLI パーサーは `node:util` の `parseArgs`(依存追加なし)
-- Lint/format: Biome。テスト: `node --test`(docker 呼び出しは薄いラッパー関数に隔離して
-  モック可能にする。実 docker を叩く統合テストは `TCB_E2E=1` でオプトイン)
-- 配布: `npm link` / `npm install -g`(bin: `tcb`)。package.json に `"bin"` 設定
+- 依存は標準ライブラリのみ(CLI パースは自前の軽量処理、テーブル出力は `text/tabwriter`)
+- **Dockerfile と entrypoint.sh は `go:embed` でバイナリに埋め込む**
+  → リポジトリを clone しなくても `tcb` 単体でイメージをビルドできる
+- Lint/format: `gofmt` + `go vet`。テスト: `go test`(docker 呼び出しは `Runner`
+  インターフェースに隔離してフェイクでテスト。実 docker を叩く統合テストは
+  `TCB_E2E=1` でオプトイン)
+- 配布: `go install github.com/mickeey2525/tdx-claude-box/cmd/tcb@latest`、
+  将来的に goreleaser で各 OS バイナリを Releases に添付
 
 ## ディレクトリ構成(予定)
 
 ```
-src/
-  cli.ts          # parseArgs とサブコマンドディスパッチのみ
-  commands/       # run / ls / shell / stop / rm / doctor
-  docker.ts       # docker CLI ラッパー(spawn、存在チェック、エラー整形)
-  config.ts       # 既定値と ~/.config/tcb/config.json(イメージタグ、workdir ルート等)
-  site.ts         # site 名バリデーション、マーカーファイル検証
+cmd/tcb/main.go       # エントリポイント
+internal/
+  cli/cli.go          # サブコマンドディスパッチ、--backend / TCB_BACKEND 解釈
+  commands/           # run / ls / shell / stop / rm / doctor
+  engine/             # Engine インターフェース + docker / apple 実装
+  config/config.go    # 既定値(イメージタグ、workdir ルート、命名規則)
+  site/site.go        # site 名バリデーション
 image/
+  embed.go            # go:embed でビルドコンテキストを埋め込み
   Dockerfile
-  entrypoint.sh   # site マーカー検証 → 初回 auth 誘導 → tdx use site → tdx claude
-test/
-PLAN.md           # 本ファイル
+  boot.sh             # メインプロセス(root)。HOME ボリューム初期化 → 常駐
+  entrypoint.sh       # site マーカー検証 → 初回 auth 誘導 → tdx use site → tdx claude
+PLAN.md               # 本ファイル
 ```
 
 ## マイルストーン
@@ -121,15 +141,20 @@ PLAN.md           # 本ファイル
    確認プロンプト、`tcb doctor`
 3. **M3: 品質** — Biome / node:test / CI(GitHub Actions)、README
 4. **M4(任意)**: `--no-container` 軽量モード(`CLAUDE_CONFIG_DIR=~/.tcb/<site>/claude` +
-   site 別 workdir 強制でホスト上分離)、Apple container バックエンド
+   site 別 workdir 強制でホスト上分離)。Apple container バックエンドは対応済み
 
 ## 未決事項(実装時に判断)
 
-1. **コンテナ内認証の方式**: `tdx auth setup` がコンテナ内(Keychain なし)でどこに
-   資格情報を保存するか要検証。`~/.config/tdx/.env` にフォールバックするなら
-   HOME ボリュームで完結。しない場合はホストから `.env` を生成して注入する仕組みが必要
-2. **`tdx claude` の Claude Code バージョンチェック**: イメージ内の claude を
-   どう更新するか(`--rebuild` 運用で足りるか、MIN_CLAUDE_VERSION との追従)
+1. **コンテナ内認証の方式**(解決済み・実機確認):
+   - Keychain がない環境では `~/.config/tdx/.env` にフォールバック → HOME ボリュームで完結
+   - **ブラウザ SSO はコンテナ内では成立しない**: OAuth コールバックがコンテナ内
+     localhost の一時ポートに返るため届かない。さらに xdg-open がなく node がクラッシュ
+     → xdg-open シムを追加し、entrypoint で「Use an API key」を選ぶよう案内
+   - 非対話の代替: `~/.config/tdx/.env` に `TD_API_KEY_<SITE>=キー`(例
+     `TD_API_KEY_US01=...`)を直接書いてもよい
+2. **`tdx claude` の Claude Code バージョンチェック**: 既定 @latest + `--rebuild`
+   (--no-cache)で追従する方針にした。残る検証は MIN_CLAUDE_VERSION 警告が
+   出たときに `tcb run <site> --rebuild` の案内で十分かの確認のみ
 3. **プロキシのポート**: pass-through プロキシはコンテナ内 127.0.0.1 なので
    ホストと衝突しない(公開ポート不要)はず。attach 方式(tty)の確認のみ
 4. **ネットワーク制限**: site ごとに egress を TD エンドポイントに絞るか

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# xdg-open シム: コンテナ内にブラウザはないので URL を表示するだけ。
+# これがないと tdx auth setup のブラウザ SSO 選択時に node が
+# `spawn xdg-open ENOENT` でクラッシュする。
+#
+# なおブラウザ SSO は URL を開けても完了しない: OAuth コールバックが
+# コンテナ内の localhost の一時ポートに返るため、ホストのブラウザからは
+# 届かない。コンテナ内では API キー認証を使うこと。
+echo "" >&2
+echo "tcb: cannot open a browser inside the container." >&2
+echo "tcb: browser SSO will NOT complete here (the OAuth callback cannot reach" >&2
+echo "tcb: the container). Cancel with Ctrl-C, re-run, and choose 'Use an API key'." >&2
+echo "tcb: requested URL was: $1" >&2
+exit 0
