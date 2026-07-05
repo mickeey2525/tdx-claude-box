@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # tcb-entry: tcb run <site> が docker exec で呼ぶセッションエントリポイント。
-# site マーカー検証 → 初回 auth 誘導 → tdx use site → tdx claude
+# site マーカー検証 → tdx use site → 初回は API キーを保存 → tdx claude
 set -euo pipefail
 
 : "${TCB_SITE:?TCB_SITE is not set (start this container via 'tcb run <site>')}"
+td_site="${TCB_TD_SITE:-$TCB_SITE}"
 
 marker="$HOME/.tcb-site"
 if [[ -f "$marker" ]]; then
@@ -17,23 +18,42 @@ else
     echo "$TCB_SITE" > "$marker"
 fi
 
-# 初回のみ tdx auth setup へ誘導。認証をやり直したいときは
-# `tcb shell <site>` で入って `tdx auth setup` を実行し直せる。
-auth_sentinel="$HOME/.tcb-auth-ok"
-if [[ ! -f "$auth_sentinel" ]]; then
-    echo "==> First run for site '$TCB_SITE': running 'tdx auth setup'"
-    echo ""
-    echo "    IMPORTANT: choose 'Use an API key' when asked how to sign in."
-    echo "    Browser SSO cannot complete inside a container (the OAuth callback"
-    echo "    never reaches it). Get an API key from TD Console > My Settings > API Keys."
-    echo ""
-    tdx auth setup
-    touch "$auth_sentinel"
-fi
-
 # box 名(TCB_SITE)と TD site(TCB_TD_SITE)は別物にできる。
 # 例: box 'us01-7060' が TD site 'us01' を使う(--site us01)。
 # コンテナ内 HOME は box 専用なので --default で安全。
-tdx use site "${TCB_TD_SITE:-$TCB_SITE}" --default
+tdx use site "$td_site" --default
+
+# 認証: コンテナ内には OS キーチェーン(Secret Service)がないため
+# `tdx auth setup` は保存に失敗する(PermissionDenied)。代わりに初回は
+# API キーを聞き、box 専用ボリューム内の env ファイルに保存して
+# TDX_API_KEY として tdx に渡す。
+env_file="$HOME/.config/tdx/.env"
+if ! grep -qs '^TDX_API_KEY=' "$env_file"; then
+    echo "==> First run for box '$TCB_SITE' (TD site: $td_site)"
+    echo "    tdx cannot use an OS keychain inside a container, so tcb stores your"
+    echo "    API key in ~/.config/tdx/.env inside this box's private volume."
+    echo "    Get one from TD Console > My Settings > API Keys."
+    printf "    Paste API key for %s: " "$td_site"
+    read -rs api_key
+    echo
+    if [[ -z "$api_key" ]]; then
+        echo "tcb: no API key entered" >&2
+        exit 1
+    fi
+    echo "    Validating..."
+    if ! TDX_API_KEY="$api_key" tdx auth status 2>&1 | grep -q "API key is valid"; then
+        echo "tcb: API key validation failed for TD site '$td_site'; nothing saved" >&2
+        exit 1
+    fi
+    mkdir -p "$HOME/.config/tdx"
+    (umask 077 && printf 'TDX_API_KEY=%s\n' "$api_key" >> "$env_file")
+    chmod 600 "$env_file"
+    echo "    Saved. To redo: 'tcb shell $TCB_SITE' and edit ~/.config/tdx/.env"
+fi
+
+set -a
+# shellcheck source=/dev/null
+source "$env_file"
+set +a
 
 exec tdx claude "$@"

@@ -25,4 +25,12 @@ if ! grep -q TCB_SITE "$home/.bashrc" 2>/dev/null; then
     chown tcb:tcb "$home/.bashrc"
 fi
 
+# tcb shell のセッションでも API キー(TDX_API_KEY)が使えるようにする
+if ! grep -q 'config/tdx/.env' "$home/.bashrc" 2>/dev/null; then
+    cat >> "$home/.bashrc" <<'RC'
+if [ -f "$HOME/.config/tdx/.env" ]; then set -a; . "$HOME/.config/tdx/.env"; set +a; fi
+RC
+    chown tcb:tcb "$home/.bashrc"
+fi
+
 exec sleep infinity

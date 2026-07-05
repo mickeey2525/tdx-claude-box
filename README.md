@@ -58,18 +58,18 @@ TCB_CLAUDE_CODE_VERSION=2.1.201 tcb run ap01 --rebuild
 
 ## 認証(初回)
 
-初回の `tcb run <site>` は `tdx auth setup` に誘導される。
-**サインイン方法は「Use an API key」を選ぶこと**(API キーは
-TD Console → My Settings → API Keys から取得)。
-ブラウザ SSO は OAuth コールバックがコンテナに届かないため完了しない。
+初回の `tcb run <site>` は API キーの入力を求める(TD Console → My Settings →
+API Keys から取得)。キーは検証したうえでコンテナ内の `~/.config/tdx/.env` に
+保存され、以後のセッションでは `TDX_API_KEY` として tdx に渡される。
+box 専用ボリュームに永続化されるので、`tcb rm --volumes` するまで再入力は不要。
 
-API キーはコンテナ内の `~/.config/tdx/.env` に保存され、site 専用ボリュームで
-永続化される(`tcb rm --volumes` するまで再入力不要)。非対話で済ませたい場合は
-`tcb shell <site>` で入って直接書いてもよい:
+コンテナ内では `tdx auth setup` は使えない:
+- ブラウザ SSO は OAuth コールバックがコンテナ内 localhost に届かず完了しない
+- API キー方式も、保存先の OS キーチェーン(Secret Service)がコンテナに
+  存在しないため `PermissionDenied` で失敗する
 
-```sh
-mkdir -p ~/.config/tdx && echo 'TD_API_KEY_US01=あなたのAPIキー' >> ~/.config/tdx/.env
-```
+キーを差し替えたいときは `tcb shell <site>` で入って `~/.config/tdx/.env` を
+編集する。
 
 ## 隔離の仕組み
 

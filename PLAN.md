@@ -146,12 +146,17 @@ PLAN.md               # 本ファイル
 ## 未決事項(実装時に判断)
 
 1. **コンテナ内認証の方式**(解決済み・実機確認):
-   - Keychain がない環境では `~/.config/tdx/.env` にフォールバック → HOME ボリュームで完結
-   - **ブラウザ SSO はコンテナ内では成立しない**: OAuth コールバックがコンテナ内
-     localhost の一時ポートに返るため届かない。さらに xdg-open がなく node がクラッシュ
-     → xdg-open シムを追加し、entrypoint で「Use an API key」を選ぶよう案内
-   - 非対話の代替: `~/.config/tdx/.env` に `TD_API_KEY_<SITE>=キー`(例
-     `TD_API_KEY_US01=...`)を直接書いてもよい
+   - **`tdx auth setup` はコンテナ内では成立しない**:
+     - ブラウザ SSO: OAuth コールバックがコンテナ内 localhost の一時ポートに返る
+       ため届かない。さらに xdg-open がなく node がクラッシュ(→シム追加)
+     - API キー方式: tdx は @napi-rs/keyring で OS の Secret Service に保存する
+       が、コンテナに D-Bus/Secret Service がなく PermissionDenied で保存失敗
+   - tdx 2026.6.5 の credential 解決順: TDX_API_KEY_<PROFILE> env →
+     **TDX_API_KEY env** → keychain。`~/.config/tdx/.env` はコード内コメントに
+     あるが現バージョンでは読まれない(実機確認)
+   - → entrypoint が初回に API キーを聞いて検証(`tdx auth status`)し、
+     `~/.config/tdx/.env`(0600、HOME ボリューム内)に保存。セッション開始時に
+     source して `TDX_API_KEY` として渡す。`tcb shell` 用に .bashrc でも source
 2. **`tdx claude` の Claude Code バージョンチェック**: 既定 @latest + `--rebuild`
    (--no-cache)で追従する方針にした。残る検証は MIN_CLAUDE_VERSION 警告が
    出たときに `tcb run <site> --rebuild` の案内で十分かの確認のみ
