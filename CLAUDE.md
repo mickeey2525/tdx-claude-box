@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```sh
 go test ./...                                 # 全テスト(実 docker 不要、フェイクで動く)
 go test ./internal/commands -run TestRm       # 単一テスト
-gofmt -l . && go vet ./...                    # lint 相当(CI はまだない)
+gofmt -l . && go vet ./...                    # lint 相当(CI でも同じチェックが走る)
 go install ./cmd/tcb                          # ~/go/bin/tcb にインストール
 bash -n image/entrypoint.sh image/boot.sh     # シェルスクリプトの構文チェック
 ```

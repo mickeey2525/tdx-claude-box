@@ -142,7 +142,7 @@ PLAN.md               # 本ファイル
    コンテナ内で `tdx auth setup` → `tdx claude` が site 固定で動くことを手動確認
 2. **M2: ガードレール** — site マーカー検証、プロンプト/ホスト名表示、`tcb rm --volumes` の
    確認プロンプト、`tcb doctor`
-3. **M3: 品質** — Biome / node:test / CI(GitHub Actions)、README
+3. **M3: 品質** — gofmt / go vet / go test / CI(GitHub Actions、対応済み)、README
 4. **M4(任意)**: `--no-container` 軽量モード(`CLAUDE_CONFIG_DIR=~/.tcb/<site>/claude` +
    site 別 workdir 強制でホスト上分離)。Apple container バックエンドは対応済み
 
