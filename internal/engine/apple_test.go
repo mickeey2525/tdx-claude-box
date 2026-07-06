@@ -213,3 +213,18 @@ func TestAppleVolumeNotFoundCamelCase(t *testing.T) {
 		t.Error("exists = true, want false")
 	}
 }
+
+func TestAppleContainerStateNotFoundV1Error(t *testing.T) {
+	// 1.0 系は存在しないコンテナで notFound エラーを返す(0.4 系は空配列)
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		return "", errors.New("container inspect: Error: container not found: tcb-nope")
+	}}
+	a := NewAppleWithRunner(r)
+	state, err := a.ContainerState("tcb-nope")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state != "" {
+		t.Errorf("state = %q, want empty", state)
+	}
+}

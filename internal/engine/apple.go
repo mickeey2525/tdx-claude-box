@@ -92,17 +92,28 @@ func (v appleVolume) labels() map[string]string {
 func (a *Apple) inspectContainer(name string) (*appleContainer, error) {
 	out, err := a.r.Output("inspect", name)
 	if err != nil {
+		// 1.0 系は存在しないコンテナで notFound エラーを返す
+		if isNotFound(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var entries []appleContainer
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		return nil, fmt.Errorf("parse container inspect output: %w", err)
 	}
-	// 存在しないコンテナは空配列で返る
+	// 0.4 系は存在しないコンテナで空配列(exit 0)を返す
 	if len(entries) == 0 {
 		return nil, nil
 	}
 	return &entries[0], nil
+}
+
+// isNotFound はリソース不在エラーか判定する。文言はバージョンで揺れる
+// ("not found" / "notFound")ため両方見る。
+func isNotFound(err error) bool {
+	return strings.Contains(err.Error(), "not found") ||
+		strings.Contains(err.Error(), "notFound")
 }
 
 func (a *Apple) ImageExists(tag string) bool {
@@ -202,9 +213,7 @@ func (a *Apple) Remove(name string) error {
 func (a *Apple) VolumeSiteLabel(name, key string) (string, bool, error) {
 	out, err := a.r.Output("volume", "inspect", name)
 	if err != nil {
-		// エラー文言はバージョンで揺れる("not found" / "notFound")ため両方見る
-		if strings.Contains(err.Error(), "not found") ||
-			strings.Contains(err.Error(), "notFound") {
+		if isNotFound(err) {
 			return "", false, nil
 		}
 		return "", false, err

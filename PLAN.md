@@ -51,7 +51,9 @@
   - volume の `name`/`labels` がトップレベル → `configuration` 配下にネスト
     (`VolumeResource` は id + configuration のみエンコード)
   - エラー文言も揺れる("not found" / "notFound")
-  → internal/engine/apple.go は両スキーマを吸収する(appleStatus / appleVolume)
+  - 存在しないコンテナの inspect が空配列(0.4)→ notFound エラー(1.0)に変更
+  → internal/engine/apple.go は両スキーマ・両挙動を吸収する
+    (appleStatus / appleVolume / isNotFound)
 - 認証はホストでは Keychain 保存。**Linux コンテナ内では Keychain が使えない**ため、
   コンテナ内で `tdx auth setup` を実行して HOME ボリュームに永続化するか、
   `~/.config/tdx/.env` 相当を注入する必要がある(要検証: コンテナ内での認証情報の保存先)
