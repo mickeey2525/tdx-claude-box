@@ -113,6 +113,10 @@ tcb rm <box> [--keep-volume] [--force]
     (認証情報も消える旨を警告して確認プロンプト)。--keep-volume でボリューム保持
 tcb doctor
     docker の有無、イメージ、各 box の状態、site マーカーの整合性を診断
+tcb upgrade [--binary-only|--image-only]
+    tcb 本体を go install @latest で更新し、新バイナリを子プロセスで呼んで
+    イメージも再ビルド(埋め込み Dockerfile の更新を確実に反映するため)
+tcb version
 ```
 
 ## 実装方針

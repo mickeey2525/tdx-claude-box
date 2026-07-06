@@ -56,6 +56,20 @@ TCB_TDX_VERSION=2026.6.5 tcb run ap01 --rebuild
 TCB_CLAUDE_CODE_VERSION=2.1.201 tcb run ap01 --rebuild
 ```
 
+## アップデート
+
+```sh
+tcb upgrade                # tcb 本体を go install @latest で更新し、イメージも再ビルド
+tcb upgrade --binary-only  # tcb 本体のみ
+tcb upgrade --image-only   # イメージのみ(tdx / claude-code を最新化。run --rebuild 相当)
+tcb version                # 現在のバージョン確認
+```
+
+- バイナリ更新には Go toolchain と、リポジトリ(private の場合)への
+  git 認証(`gh auth setup-git` か SSH)が必要
+- イメージ更新後も**既存の box は古いイメージのまま**。反映は
+  `tcb rm <box>` → `tcb run <box>`(認証を残すなら `--keep-volume`)
+
 ## 認証(初回)
 
 初回の `tcb run <site>` は API キーの入力を求める(TD Console → My Settings →

@@ -34,6 +34,10 @@ Commands:
         --force skips the prompt.
   doctor
         Diagnose backends, image, boxes and volumes.
+  upgrade [--binary-only|--image-only]
+        Update the tcb binary (go install @latest) and rebuild the image.
+  version
+        Show version information.
 
 Backend selection (default: auto-detect, docker first):
   --backend docker|apple    or environment variable TCB_BACKEND
@@ -69,10 +73,16 @@ parsed:
 	}
 
 	var err error
-	if cmd == "doctor" {
+	switch cmd {
+	case "version", "--version":
+		err = commands.Version(os.Stdout)
+	case "doctor":
 		// doctor はバックエンド不在でも診断結果を出す
 		err = commands.Doctor(backend, os.Stdout)
-	} else {
+	case "upgrade":
+		// バイナリ更新はバックエンド不要なので engine 選択はコマンド内で行う
+		err = commands.Upgrade(backend, rest, os.Stdout)
+	default:
 		var e engine.Engine
 		e, err = engine.Select(backend)
 		if err != nil {
