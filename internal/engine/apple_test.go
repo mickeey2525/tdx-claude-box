@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// 実機の container CLI 0.4.1 の出力から採取した JSON。
-const appleInspectJSON = `[{"status":"running","networks":[{"gateway":"192.168.64.1","hostname":"tcb-ap01","network":"default","address":"192.168.64.2/24"}],"configuration":{"labels":{"tcb.site":"ap01","tcb.workdir":"/Users/x/tcb/ap01"},"id":"tcb-ap01"}}]`
-
-const appleVolumeInspectJSON = `[{"driver":"local","name":"tcb-ap01-home","format":"ext4","options":{},"labels":{"tcb.site":"ap01"},"createdAt":804865446.7,"source":"/tmp/volume.img"}]`
+// 実機の container CLI 1.0.0 の出力から採取した JSON。
+const appleInspectJSON = `[{"status":{"state":"running","networks":[{"hostname":"tcb-ap01","ipv4Address":"192.168.64.2/24","ipv4Gateway":"192.168.64.1","network":"default"}],"startedDate":"2026-07-06T08:28:16Z"},"configuration":{"labels":{"tcb.site":"ap01","tcb.workdir":"/Users/x/tcb/ap01"},"id":"tcb-ap01"}}]`
 
 func TestAppleContainerStateNotFound(t *testing.T) {
 	// 存在しないコンテナの inspect は空配列を返す(exit 0)
@@ -44,20 +42,6 @@ func TestAppleContainerStateAndLabel(t *testing.T) {
 	}
 	if label != "/Users/x/tcb/ap01" {
 		t.Errorf("label = %q, want /Users/x/tcb/ap01", label)
-	}
-}
-
-func TestAppleVolumeSiteLabel(t *testing.T) {
-	r := &fakeRunner{onOutput: func(args []string) (string, error) {
-		return appleVolumeInspectJSON, nil
-	}}
-	a := NewAppleWithRunner(r)
-	label, exists, err := a.VolumeSiteLabel("tcb-ap01-home", "tcb.site")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !exists || label != "ap01" {
-		t.Errorf("label, exists = %q, %v; want ap01, true", label, exists)
 	}
 }
 
@@ -119,8 +103,8 @@ func TestAppleRunDetachedArgs(t *testing.T) {
 
 func TestAppleListBoxesFiltersByLabel(t *testing.T) {
 	list := `[
-	  {"status":"running","configuration":{"id":"tcb-ap01","labels":{"tcb.site":"ap01","tcb.workdir":"/w"}}},
-	  {"status":"stopped","configuration":{"id":"unrelated","labels":{}}}
+	  {"status":{"state":"running","networks":[]},"configuration":{"id":"tcb-ap01","labels":{"tcb.site":"ap01","tcb.workdir":"/w"}}},
+	  {"status":{"state":"stopped","networks":[]},"configuration":{"id":"unrelated","labels":{}}}
 	]`
 	r := &fakeRunner{onOutput: func(args []string) (string, error) {
 		return list, nil
@@ -211,6 +195,21 @@ func TestAppleVolumeNotFoundCamelCase(t *testing.T) {
 	}
 	if exists {
 		t.Error("exists = true, want false")
+	}
+}
+
+func TestAppleImageExistsUsesImageInspect(t *testing.T) {
+	// 1.0 系のサブコマンドは `image inspect`(0.4 系の `images` は廃止)
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		return "[{}]", nil
+	}}
+	a := NewAppleWithRunner(r)
+	if !a.ImageExists("tcb:latest") {
+		t.Error("ImageExists = false, want true")
+	}
+	want := []string{"image", "inspect", "tcb:latest"}
+	if len(r.calls) != 1 || !reflect.DeepEqual(r.calls[0], want) {
+		t.Errorf("args = %v, want [%v]", r.calls, want)
 	}
 }
 

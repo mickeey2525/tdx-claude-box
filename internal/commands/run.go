@@ -166,7 +166,13 @@ func Run(e engine.Engine, args []string) error {
 	}
 
 	command := append([]string{config.EntryCommand}, o.Passthrough...)
-	return e.ExecInteractive(sessionExecOpts(name, command))
+	opts := sessionExecOpts(name, command)
+	// URL ブリッジはコンテナ起動後にしか組めない(Apple は inspect の networks が必要)
+	if b, addr := startSessionBridge(e, name); b != nil {
+		defer b.Close()
+		opts.Env["TCB_BRIDGE"] = addr
+	}
+	return e.ExecInteractive(opts)
 }
 
 // sessionExecOpts は box 内セッション実行の共通オプションを返す。

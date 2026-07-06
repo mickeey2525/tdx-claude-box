@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 type fakeRunner struct {
 	calls    [][]string
 	onOutput func(args []string) (string, error)
+	onStream func(args []string) (io.ReadWriteCloser, error)
 }
 
 func (f *fakeRunner) Output(args ...string) (string, error) {
@@ -25,6 +27,21 @@ func (f *fakeRunner) Interactive(args ...string) error {
 	f.calls = append(f.calls, args)
 	return nil
 }
+
+func (f *fakeRunner) Stream(args ...string) (io.ReadWriteCloser, error) {
+	f.calls = append(f.calls, args)
+	if f.onStream != nil {
+		return f.onStream(args)
+	}
+	return nopStream{}, nil
+}
+
+// nopStream はテスト用の何もしない双方向ストリーム。
+type nopStream struct{}
+
+func (nopStream) Read(p []byte) (int, error)  { return 0, io.EOF }
+func (nopStream) Write(p []byte) (int, error) { return len(p), nil }
+func (nopStream) Close() error                { return nil }
 
 func TestContainerStateNotFound(t *testing.T) {
 	r := &fakeRunner{onOutput: func(args []string) (string, error) {

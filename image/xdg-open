@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
-# xdg-open シム: コンテナ内にブラウザはないので URL を表示するだけ。
-# これがないと tdx auth setup のブラウザ SSO 選択時に node が
-# `spawn xdg-open ENOENT` でクラッシュする。
-#
-# なおブラウザ SSO は URL を開けても完了しない: OAuth コールバックが
-# コンテナ内の localhost の一時ポートに返るため、ホストのブラウザからは
-# 届かない。コンテナ内では API キー認証を使うこと。
+# xdg-open シム: コンテナ内にブラウザはない。tcb セッションが TCB_BRIDGE
+# (host:port)を設定していれば URL を1行送り、ホスト側で開いてもらう
+# (OAuth の localhost コールバックはホスト側 tcb が box へ中継する)。
+# ブリッジ不在・送信失敗時は URL を表示するだけ(従来動作)。
+# node の `spawn xdg-open ENOENT` クラッシュ防止も引き続き兼ねる。
+url="${1:-}"
+
+if [[ -n "${TCB_BRIDGE:-}" && "$url" =~ ^https?:// ]]; then
+    host="${TCB_BRIDGE%:*}"
+    port="${TCB_BRIDGE##*:}"
+    # bash -c の位置引数($0/$1/$2)経由で渡してクォート事故を避ける
+    if timeout 3 bash -c 'exec 3<>"/dev/tcp/$0/$1" && printf "%s\n" "$2" >&3' \
+            "$host" "$port" "$url" 2>/dev/null; then
+        echo "tcb: opening in host browser: $url" >&2
+        exit 0
+    fi
+    echo "tcb: warning: could not reach the tcb URL bridge at $TCB_BRIDGE" >&2
+fi
+
 echo "" >&2
 echo "tcb: cannot open a browser inside the container." >&2
-echo "tcb: browser SSO will NOT complete here (the OAuth callback cannot reach" >&2
-echo "tcb: the container). Cancel with Ctrl-C, re-run, and choose 'Use an API key'." >&2
-echo "tcb: requested URL was: $1" >&2
+echo "tcb: open this URL on the host manually:" >&2
+echo "tcb:   $url" >&2
 exit 0

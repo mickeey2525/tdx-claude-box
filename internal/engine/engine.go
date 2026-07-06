@@ -6,6 +6,7 @@ package engine
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -45,6 +46,13 @@ type Engine interface {
 	ListBoxes(siteLabel, workdirLabel string) ([]Box, error)
 	// ListVolumes は labelKey を持つボリューム名を列挙する。
 	ListVolumes(labelKey string) ([]string, error)
+
+	// BridgeAddrs は URL ブリッジ用のアドレスを返す。bindIP はホスト側リスナーの
+	// バインド先、dialHost はコンテナ内からそのリスナーへ届くアドレス
+	// (TCB_BRIDGE の host 部)。コンテナは起動済みであること。
+	BridgeAddrs(name string) (bindIP, dialHost string, err error)
+	// DialContainerPort はコンテナ内 127.0.0.1:port への双方向接続を開く。
+	DialContainerPort(name string, port int) (io.ReadWriteCloser, error)
 }
 
 // RunOpts はバックグラウンドコンテナ起動のオプション。
@@ -100,6 +108,9 @@ type Runner interface {
 	Output(args ...string) (string, error)
 	// Interactive は標準入出力を引き継いで <bin> <args...> を実行する。
 	Interactive(args ...string) error
+	// Stream は <bin> <args...> を起動し、その stdin/stdout を双方向ストリーム
+	// として返す。Close はプロセスを終了・回収する。
+	Stream(args ...string) (io.ReadWriteCloser, error)
 }
 
 type execRunner struct {
@@ -127,6 +138,46 @@ func (r *execRunner) Interactive(args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// streamProc は子プロセスの stdin/stdout を io.ReadWriteCloser として包む。
+// stderr はセッションの TTY(claude の TUI)を壊さないよう破棄する。
+type streamProc struct {
+	cmd *exec.Cmd
+	in  io.WriteCloser
+	out io.ReadCloser
+}
+
+func (s *streamProc) Read(p []byte) (int, error)  { return s.out.Read(p) }
+func (s *streamProc) Write(p []byte) (int, error) { return s.in.Write(p) }
+
+// CloseWrite は stdin だけを閉じる(TCP の half-close を子プロセスへ伝える)。
+func (s *streamProc) CloseWrite() error { return s.in.Close() }
+
+func (s *streamProc) Close() error {
+	s.in.Close()
+	s.out.Close()
+	if s.cmd.Process != nil {
+		s.cmd.Process.Kill()
+	}
+	return s.cmd.Wait()
+}
+
+func (r *execRunner) Stream(args ...string) (io.ReadWriteCloser, error) {
+	cmd := exec.Command(r.bin, args...)
+	cmd.Stderr = io.Discard
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &streamProc{cmd: cmd, in: in, out: out}, nil
 }
 
 // sortedKeys は map の走査順を安定させる(CLI 引数の順序を決定的にする)。

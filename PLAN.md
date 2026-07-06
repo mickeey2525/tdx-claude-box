@@ -32,7 +32,8 @@
   `--default` を付けるとグローバル(~/.config/tdx/tdx.json)に書く
 - tdx のインストール: npm パッケージ `@treasuredata/tdx`(mise の node 24 配下で確認)
 - ホストの利用可能ランタイム: Docker 29.3.1(/usr/local/bin/docker)と
-  Apple container 0.4.1(/usr/local/bin/container)。podman なし
+  Apple container 1.0.0(/usr/local/bin/container、2026-07-06 に 0.4.1 から更新)。
+  podman なし
 - Apple container 0.4.1 の実機で確認した Docker との差分:
   - inspect / list は Go テンプレート非対応。`--format json` をパースする
   - `--hostname` なし(ホスト名は常にコンテナ名)、`--init` なし(VM 内の vminitd が init)
@@ -52,8 +53,25 @@
     (`VolumeResource` は id + configuration のみエンコード)
   - エラー文言も揺れる("not found" / "notFound")
   - 存在しないコンテナの inspect が空配列(0.4)→ notFound エラー(1.0)に変更
-  → internal/engine/apple.go は両スキーマ・両挙動を吸収する
-    (appleStatus / appleVolume / isNotFound)
+  - `networks` もトップレベル(0.4)→ `status` 配下(1.0)に移動し、フィールド名が
+    `gateway`/`address` → `ipv4Gateway`/`ipv4Address` に変更(1.0.0 実機で確認)
+  - サブコマンド `images` が `image` にリネーム(1.0 で `images` は
+    "Plugin 'container-images' not found" エラーになる)。`volume` は変更なし
+  → **apple.go は 1.0 系のみサポート**(0.4 両対応は 2026-07-06 に削除。
+    テストのフィクスチャは 1.0.0 実機出力から採取)
+- コンテナ⇔ホストの到達性(URL ブリッジの前提):
+  - Docker Desktop(macOS): コンテナ→ホストは `host.docker.internal` で届き、
+    ホストの 127.0.0.1 バインドにも到達できる。**ホスト→コンテナ IP は不可**
+  - Apple container: コンテナ→ホストは vmnet ゲートウェイ IP(inspect の
+    `networks[].gateway`、例 192.168.64.1)。ホストの loopback バインドには
+    届かないのでブリッジはゲートウェイ IP にバインドする。ホスト→コンテナ IP
+    (`networks[].address`)への直接 TCP は可能だが、**コンテナ内で 127.0.0.1 に
+    バインドしたサーバー(OAuth コールバックの通例)には届かない**
+  - → コールバック中継は両バックエンドとも
+    `exec -i <box> socat STDIO TCP:127.0.0.1:<port>`(イメージに socat を同梱)で
+    コンテナの netns 内から loopback に接続する
+  - Linux の Docker は `host.docker.internal` が既定で解決しない(既知の制限。
+    シム側の 3 秒タイムアウトで従来動作に degrade)
 - 認証はホストでは Keychain 保存。**Linux コンテナ内では Keychain が使えない**ため、
   コンテナ内で `tdx auth setup` を実行して HOME ボリュームに永続化するか、
   `~/.config/tdx/.env` 相当を注入する必要がある(要検証: コンテナ内での認証情報の保存先)
@@ -176,6 +194,11 @@ PLAN.md               # 本ファイル
    - → entrypoint が初回に API キーを聞いて検証(`tdx auth status`)し、
      `~/.config/tdx/.env`(0600、HOME ボリューム内)に保存。セッション開始時に
      source して `TDX_API_KEY` として渡す。`tcb shell` 用に .bashrc でも source
+   - **URL ブリッジ導入後の整理**: ブラウザ起動と OAuth コールバックは
+     internal/bridge(xdg-open シム + TCB_BRIDGE + ポート中継)で解決した。
+     Claude Code の MCP OAuth はトークンがファイル保存(~/.claude)なので
+     box 内で完結する。tdx auth setup だけはキーチェーン保存で依然失敗するため
+     API キー方式を維持
 2. **`tdx claude` の Claude Code バージョンチェック**: 既定 @latest + `--rebuild`
    (--no-cache)で追従する方針にした。残る検証は MIN_CLAUDE_VERSION 警告が
    出たときに `tcb run <site> --rebuild` の案内で十分かの確認のみ

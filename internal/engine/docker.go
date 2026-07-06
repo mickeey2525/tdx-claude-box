@@ -2,13 +2,18 @@ package engine
 
 import (
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // Docker は docker CLI バックエンド。SDK 依存を持たず子プロセスで docker を叩く。
 type Docker struct {
 	r Runner
+	// socat プリフライトはコンテナごとに1回で足りる(1セッション=1コンテナ)。
+	socatOnce sync.Once
+	socatErr  error
 }
 
 // NewDocker は docker CLI を実行するバックエンドを返す。
@@ -171,6 +176,30 @@ func (d *Docker) ListBoxes(siteLabel, workdirLabel string) ([]Box, error) {
 		boxes = append(boxes, Box{Name: f[0], Site: f[1], State: f[2], Workdir: f[3], RunningFor: f[4]})
 	}
 	return boxes, nil
+}
+
+// BridgeAddrs: Docker Desktop(macOS)ではコンテナから host.docker.internal で
+// ホストの loopback バインドに届くため、ホスト側は 127.0.0.1 で listen する。
+func (d *Docker) BridgeAddrs(string) (string, string, error) {
+	return "127.0.0.1", "host.docker.internal", nil
+}
+
+// DialContainerPort: macOS の Docker はホストからコンテナ IP に到達できないため、
+// docker exec + socat で stdin/stdout をコンテナ内ポートへ橋渡しする。
+func (d *Docker) DialContainerPort(name string, port int) (io.ReadWriteCloser, error) {
+	// socat 追加前に作られたイメージへの分かりやすい導線を出す
+	// (which は slim イメージに無いことがあるため socat 自身を叩く)
+	d.socatOnce.Do(func() {
+		if _, err := d.r.Output("exec", name, "socat", "-V"); err != nil {
+			d.socatErr = fmt.Errorf(
+				"socat not found in the box image (rebuild it with 'tcb run <box> --rebuild')")
+		}
+	})
+	if d.socatErr != nil {
+		return nil, d.socatErr
+	}
+	return d.r.Stream("exec", "--interactive", name,
+		"socat", "STDIO", fmt.Sprintf("TCP:127.0.0.1:%d", port))
 }
 
 func (d *Docker) ListVolumes(labelKey string) ([]string, error) {
