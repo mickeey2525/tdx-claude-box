@@ -28,6 +28,8 @@ RUN cd /tmp \
     && ln -s /opt/claude/.local/bin/claude /usr/local/bin/claude \
     && chmod -R a+rX /opt/claude
 ENV DISABLE_AUTOUPDATER=1
+# ブラウザを開くツールが $BROWSER を優先する場合も xdg-open シムへ誘導する
+ENV BROWSER=xdg-open
 
 # node イメージは uid 1000 を "node" が使っているので tcb は 1001。
 # /home/tcb には site ごとのボリュームがマウントされ、tcb-boot が初期化する。
