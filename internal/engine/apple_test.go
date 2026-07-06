@@ -150,3 +150,66 @@ func TestAppleRemoveUsesDeleteForce(t *testing.T) {
 		t.Errorf("args = %v, want %v", r.calls, want)
 	}
 }
+
+// container 1.0 系のスキーマ: status はオブジェクト、volume の name/labels は
+// configuration 配下にネストされる。
+const appleInspectJSONv1 = `[{"status":{"state":"running","networks":[],"startedDate":804900000.0},"configuration":{"labels":{"tcb.site":"ap01","tcb.workdir":"/w"},"id":"tcb-ap01"}}]`
+
+const appleVolumeInspectJSONv1 = `[{"id":"tcb-ap01-home","configuration":{"name":"tcb-ap01-home","labels":{"tcb.site":"ap01"},"creationDate":804900000.0}}]`
+
+func TestAppleContainerStateV1Schema(t *testing.T) {
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		return appleInspectJSONv1, nil
+	}}
+	a := NewAppleWithRunner(r)
+	state, err := a.ContainerState("tcb-ap01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state != "running" {
+		t.Errorf("state = %q, want running", state)
+	}
+}
+
+func TestAppleListBoxesV1Schema(t *testing.T) {
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		return appleInspectJSONv1, nil
+	}}
+	a := NewAppleWithRunner(r)
+	boxes, err := a.ListBoxes("tcb.site", "tcb.workdir")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := Box{Name: "tcb-ap01", Site: "ap01", State: "running", Workdir: "/w", RunningFor: "-"}
+	if len(boxes) != 1 || boxes[0] != want {
+		t.Errorf("boxes = %+v, want [%+v]", boxes, want)
+	}
+}
+
+func TestAppleVolumeSiteLabelV1Schema(t *testing.T) {
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		return appleVolumeInspectJSONv1, nil
+	}}
+	a := NewAppleWithRunner(r)
+	label, exists, err := a.VolumeSiteLabel("tcb-ap01-home", "tcb.site")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !exists || label != "ap01" {
+		t.Errorf("label, exists = %q, %v; want ap01, true", label, exists)
+	}
+}
+
+func TestAppleVolumeNotFoundCamelCase(t *testing.T) {
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		return "", errors.New(`container volume: Error: notFound: "volume tcb-x-home"`)
+	}}
+	a := NewAppleWithRunner(r)
+	_, exists, err := a.VolumeSiteLabel("tcb-x-home", "tcb.site")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exists {
+		t.Error("exists = true, want false")
+	}
+}

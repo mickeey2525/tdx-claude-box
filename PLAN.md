@@ -45,6 +45,13 @@
   - `volume create` は名前をオプションより先に書く必要がある
   - コンテナ削除は `delete --force`、状態は "running"/"stopped"、
     存在しないコンテナの inspect は空配列(exit 0)
+- Apple container **1.0 系は JSON スキーマが変わっている**(ソースで確認):
+  - `status` が文字列 → `{"state":"running","networks":[...],"startedDate":...}` の
+    オブジェクトに(`ContainerStatus` 構造体)
+  - volume の `name`/`labels` がトップレベル → `configuration` 配下にネスト
+    (`VolumeResource` は id + configuration のみエンコード)
+  - エラー文言も揺れる("not found" / "notFound")
+  → internal/engine/apple.go は両スキーマを吸収する(appleStatus / appleVolume)
 - 認証はホストでは Keychain 保存。**Linux コンテナ内では Keychain が使えない**ため、
   コンテナ内で `tdx auth setup` を実行して HOME ボリュームに永続化するか、
   `~/.config/tdx/.env` 相当を注入する必要がある(要検証: コンテナ内での認証情報の保存先)

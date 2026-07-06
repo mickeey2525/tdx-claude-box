@@ -35,9 +35,29 @@ func (a *Apple) Available() error {
 	return nil
 }
 
+// appleStatus は status フィールドのバージョン差を吸収する。
+// 0.4 系は "running" という文字列、1.0 系は {"state":"running",...} のオブジェクト。
+type appleStatus string
+
+func (s *appleStatus) UnmarshalJSON(b []byte) error {
+	var str string
+	if json.Unmarshal(b, &str) == nil {
+		*s = appleStatus(str)
+		return nil
+	}
+	var obj struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return fmt.Errorf("unsupported container status format: %s", b)
+	}
+	*s = appleStatus(obj.State)
+	return nil
+}
+
 // appleContainer は container inspect / list --format json の1エントリ。
 type appleContainer struct {
-	Status        string `json:"status"`
+	Status        appleStatus `json:"status"`
 	Configuration struct {
 		ID     string            `json:"id"`
 		Labels map[string]string `json:"labels"`
@@ -45,9 +65,28 @@ type appleContainer struct {
 }
 
 // appleVolume は container volume inspect / ls --format json の1エントリ。
+// 0.4 系は name/labels がトップレベル、1.0 系は configuration 配下にある。
 type appleVolume struct {
-	Name   string            `json:"name"`
-	Labels map[string]string `json:"labels"`
+	Name          string            `json:"name"`
+	Labels        map[string]string `json:"labels"`
+	Configuration struct {
+		Name   string            `json:"name"`
+		Labels map[string]string `json:"labels"`
+	} `json:"configuration"`
+}
+
+func (v appleVolume) name() string {
+	if v.Name != "" {
+		return v.Name
+	}
+	return v.Configuration.Name
+}
+
+func (v appleVolume) labels() map[string]string {
+	if v.Labels != nil {
+		return v.Labels
+	}
+	return v.Configuration.Labels
 }
 
 func (a *Apple) inspectContainer(name string) (*appleContainer, error) {
@@ -93,7 +132,7 @@ func (a *Apple) ContainerState(name string) (string, error) {
 	if err != nil || entry == nil {
 		return "", err
 	}
-	return entry.Status, nil
+	return string(entry.Status), nil
 }
 
 func (a *Apple) ContainerLabel(name, key string) (string, error) {
@@ -177,7 +216,7 @@ func (a *Apple) VolumeSiteLabel(name, key string) (string, bool, error) {
 	if len(entries) == 0 {
 		return "", false, nil
 	}
-	return entries[0].Labels[key], true, nil
+	return entries[0].labels()[key], true, nil
 }
 
 func (a *Apple) VolumeCreate(name string, labels map[string]string) error {
@@ -214,7 +253,7 @@ func (a *Apple) ListBoxes(siteLabel, workdirLabel string) ([]Box, error) {
 		boxes = append(boxes, Box{
 			Name:       e.Configuration.ID,
 			Site:       site,
-			State:      e.Status,
+			State:      string(e.Status),
 			Workdir:    e.Configuration.Labels[workdirLabel],
 			RunningFor: "-", // Apple container は起動時刻を公開しない
 		})
@@ -233,8 +272,8 @@ func (a *Apple) ListVolumes(labelKey string) ([]string, error) {
 	}
 	var names []string
 	for _, e := range entries {
-		if _, ok := e.Labels[labelKey]; ok {
-			names = append(names, e.Name)
+		if _, ok := e.labels()[labelKey]; ok {
+			names = append(names, e.name())
 		}
 	}
 	return names, nil
