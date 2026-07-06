@@ -65,6 +65,18 @@ func TestShellDegradesWhenBridgeUnavailable(t *testing.T) {
 	}
 }
 
+func TestPrearmPorts(t *testing.T) {
+	t.Setenv("TCB_BRIDGE_PORTS", "")
+	if got := prearmPorts(); len(got) != 1 || got[0] != 3118 {
+		t.Errorf("prearmPorts() = %v, want [3118]", got)
+	}
+	// TCB_BRIDGE_PORTS で追加。重複・不正値は無視される
+	t.Setenv("TCB_BRIDGE_PORTS", "8080, 3118, abc, -1")
+	if got := prearmPorts(); len(got) != 2 || got[0] != 3118 || got[1] != 8080 {
+		t.Errorf("prearmPorts() = %v, want [3118 8080]", got)
+	}
+}
+
 func TestStartSessionBridgeNilOnError(t *testing.T) {
 	r := &fakeRunner{onOutput: func(args []string) (string, error) {
 		return `[{"status":{"state":"running","networks":[]},"configuration":{"labels":{},"id":"tcb-ap01"}}]`, nil

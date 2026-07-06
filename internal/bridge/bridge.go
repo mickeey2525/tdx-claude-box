@@ -32,6 +32,12 @@ type Config struct {
 	Open func(url string) error
 	// Log は警告・進捗の出力先。nil なら os.Stderr。
 	Log io.Writer
+	// PrearmPorts はセッション開始時から中継を張っておくコールバックポート。
+	// Claude Code はヘッドレス環境でブラウザ起動をスキップして URL 表示に
+	// 直行する(xdg-open が呼ばれない)ため、URL からポートを知る機会がない。
+	// 幸いコールバックポートは固定なので先に張っておき、ユーザーが端末の
+	// URL をホストブラウザで開けばコールバックが届く。
+	PrearmPorts []int
 }
 
 // Bridge は1セッション分の URL ブリッジ。Close まで動き続ける。
@@ -59,6 +65,9 @@ func Start(cfg Config) (*Bridge, error) {
 		return nil, fmt.Errorf("bridge: listen on %s: %w", cfg.BindIP, err)
 	}
 	b := &Bridge{cfg: cfg, ln: ln, relays: map[int]net.Listener{}}
+	for _, port := range cfg.PrearmPorts {
+		b.ensureRelay(port)
+	}
 	go b.acceptLoop()
 	return b, nil
 }

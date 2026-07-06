@@ -72,6 +72,14 @@
     コンテナの netns 内から loopback に接続する
   - Linux の Docker は `host.docker.internal` が既定で解決しない(既知の制限。
     シム側の 3 秒タイムアウトで従来動作に degrade)
+- Claude Code(native 2.1.201)のブラウザ起動挙動(実機確認):
+  - コンテナ内では MCP OAuth 時にブラウザ起動を**スキップして URL 表示に直行**
+    する(xdg-open は呼ばれない。$BROWSER / DISPLAY を設定しても呼ばれない。
+    検出方法は非公開)
+  - MCP OAuth のコールバックポートは **3118 固定**(複数回の認可で同一)
+  - → ブリッジは 3118 を事前中継し、ユーザーが端末の URL をホストブラウザで
+    開けば完結する。Atlassian MCP で実機検証済み(トークンは
+    ~/.claude/.credentials.json に保存され HOME ボリュームで持続)
 - 認証はホストでは Keychain 保存。**Linux コンテナ内では Keychain が使えない**ため、
   コンテナ内で `tdx auth setup` を実行して HOME ボリュームに永続化するか、
   `~/.config/tdx/.env` 相当を注入する必要がある(要検証: コンテナ内での認証情報の保存先)
