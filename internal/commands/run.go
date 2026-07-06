@@ -279,10 +279,17 @@ func ensureVolume(e engine.Engine, siteName string) error {
 	if !exists {
 		return e.VolumeCreate(volume, map[string]string{config.LabelSite: siteName})
 	}
-	if label != siteName {
-		return fmt.Errorf("volume %s exists but is not labeled for site %q (label: %q); remove it manually if it is stale", volume, siteName, label)
+	switch label {
+	case siteName:
+		return nil
+	case "":
+		// ラベルは後付けできないので、ラベルなしボリュームは警告して採用する。
+		// site の取り違えはコンテナ内のマーカー検証が防ぐ。
+		fmt.Fprintf(os.Stderr, "tcb: warning: adopting existing volume %s without a %s label (site is still verified by the in-volume marker)\n", volume, config.LabelSite)
+		return nil
+	default:
+		return fmt.Errorf("volume %s belongs to site %q, not %q; remove it manually if it is stale", volume, label, siteName)
 	}
-	return nil
 }
 
 // checkExistingTDSite は --site 指定が既存コンテナの設定と食い違っていないか確認する。

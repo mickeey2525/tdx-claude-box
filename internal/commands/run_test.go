@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/mickeey2525/tdx-claude-box/internal/engine"
 )
 
 func TestParseRunArgs(t *testing.T) {
@@ -210,5 +213,37 @@ func TestSyncProjectSettingsKeepsUnmanagedSettingsWhenSourceMissing(t *testing.T
 	}
 	if string(got) != "{\"manual\":true}\n" {
 		t.Errorf("unmanaged settings.json changed to %q", got)
+	}
+}
+
+func TestEnsureVolumeAdoptsUnlabeled(t *testing.T) {
+	// ラベルなしの既存ボリューム(過去の中断された実行や手動作成の残り)は
+	// エラーにせず採用する。site の照合はコンテナ内マーカーが担う。
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		if args[0] == "volume" && args[1] == "inspect" {
+			return "\n", nil // 存在するがラベルなし
+		}
+		return "", nil
+	}}
+	e := engine.NewDockerWithRunner(r)
+	if err := ensureVolume(e, "ap01"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.called("volume", "create") {
+		t.Errorf("existing volume must not be recreated; calls: %v", r.calls)
+	}
+}
+
+func TestEnsureVolumeRejectsOtherSite(t *testing.T) {
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		if args[0] == "volume" && args[1] == "inspect" {
+			return "us01\n", nil
+		}
+		return "", nil
+	}}
+	e := engine.NewDockerWithRunner(r)
+	err := ensureVolume(e, "ap01")
+	if err == nil || !strings.Contains(err.Error(), "belongs to site") {
+		t.Fatalf("err = %v, want belongs-to-site error", err)
 	}
 }

@@ -163,7 +163,9 @@ func (a *Apple) Remove(name string) error {
 func (a *Apple) VolumeSiteLabel(name, key string) (string, bool, error) {
 	out, err := a.r.Output("volume", "inspect", name)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		// エラー文言はバージョンで揺れる("not found" / "notFound")ため両方見る
+		if strings.Contains(err.Error(), "not found") ||
+			strings.Contains(err.Error(), "notFound") {
 			return "", false, nil
 		}
 		return "", false, err
