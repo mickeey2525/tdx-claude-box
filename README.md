@@ -18,7 +18,7 @@ Dockerfile はバイナリに埋め込まれているため、リポジトリの
 
 ## バックエンド
 
-Docker と [Apple container](https://github.com/apple/container) の両方に対応。
+Docker と [Apple container](https://github.com/apple/container)(**1.0 以降**)の両方に対応。
 既定では自動検出(docker 優先)。明示するには:
 
 ```sh
@@ -80,12 +80,22 @@ box 専用ボリュームに永続化されるので、box を消すまで再入
 `tcb rm --keep-volume`)。
 
 コンテナ内では `tdx auth setup` は使えない:
-- ブラウザ SSO は OAuth コールバックがコンテナ内 localhost に届かず完了しない
-- API キー方式も、保存先の OS キーチェーン(Secret Service)がコンテナに
-  存在しないため `PermissionDenied` で失敗する
+- 認証情報の保存先である OS キーチェーン(Secret Service)がコンテナに
+  存在しないため `PermissionDenied` で失敗する(ブラウザ SSO・API キー方式とも)
 
 キーを差し替えたいときは `tcb shell <site>` で入って `~/.config/tdx/.env` を
 編集する。
+
+## ブラウザ認証(MCP OAuth など)
+
+box 内のツールがブラウザを開こうとすると、URL は自動的に**ホストのブラウザ**で
+開き、OAuth の `localhost` コールバックは box 内へ中継される(tcb の URL
+ブリッジ)。たとえば Claude Code に Atlassian リモート MCP を追加して `/mcp` で
+認証するフローは box 内でそのまま完結し、トークンは box の HOME ボリュームに
+永続化される。
+
+この中継(Docker バックエンド)はイメージ内の socat を使うため、socat 追加前に
+作った box では `tcb run <box> --rebuild` で作り直しが必要。
 
 ## イメージのカスタマイズ(ツールの追加)
 

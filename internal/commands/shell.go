@@ -30,5 +30,10 @@ func Shell(e engine.Engine, args []string) error {
 			return err
 		}
 	}
-	return e.ExecInteractive(sessionExecOpts(name, []string{"bash", "-l"}))
+	opts := sessionExecOpts(name, []string{"bash", "-l"})
+	if b, addr := startSessionBridge(e, name); b != nil {
+		defer b.Close()
+		opts.Env["TCB_BRIDGE"] = addr
+	}
+	return e.ExecInteractive(opts)
 }

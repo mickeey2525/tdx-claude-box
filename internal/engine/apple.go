@@ -3,9 +3,11 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Apple は Apple container CLI(https://github.com/apple/container)バックエンド。
@@ -13,6 +15,9 @@ import (
 // ホスト名は常にコンテナ名になる(--hostname 相当のフラグはない)。
 type Apple struct {
 	r Runner
+	// socat プリフライトはコンテナごとに1回で足りる(1セッション=1コンテナ)。
+	socatOnce sync.Once
+	socatErr  error
 }
 
 // NewApple は container CLI を実行するバックエンドを返す。
@@ -35,24 +40,16 @@ func (a *Apple) Available() error {
 	return nil
 }
 
-// appleStatus は status フィールドのバージョン差を吸収する。
-// 0.4 系は "running" という文字列、1.0 系は {"state":"running",...} のオブジェクト。
-type appleStatus string
+// appleNetwork は inspect の status.networks 配列の1エントリ(1.0.0 実機で確認)。
+type appleNetwork struct {
+	IPv4Gateway string `json:"ipv4Gateway"`
+}
 
-func (s *appleStatus) UnmarshalJSON(b []byte) error {
-	var str string
-	if json.Unmarshal(b, &str) == nil {
-		*s = appleStatus(str)
-		return nil
-	}
-	var obj struct {
-		State string `json:"state"`
-	}
-	if err := json.Unmarshal(b, &obj); err != nil {
-		return fmt.Errorf("unsupported container status format: %s", b)
-	}
-	*s = appleStatus(obj.State)
-	return nil
+// appleStatus は inspect / list の status オブジェクト(1.0 系)。
+// 0.4 系の文字列形式はサポートしない。
+type appleStatus struct {
+	State    string         `json:"state"`
+	Networks []appleNetwork `json:"networks"`
 }
 
 // appleContainer は container inspect / list --format json の1エントリ。
@@ -64,29 +61,13 @@ type appleContainer struct {
 	} `json:"configuration"`
 }
 
-// appleVolume は container volume inspect / ls --format json の1エントリ。
-// 0.4 系は name/labels がトップレベル、1.0 系は configuration 配下にある。
+// appleVolume は container volume inspect / ls --format json の1エントリ
+// (1.0 系。name/labels は configuration 配下)。
 type appleVolume struct {
-	Name          string            `json:"name"`
-	Labels        map[string]string `json:"labels"`
 	Configuration struct {
 		Name   string            `json:"name"`
 		Labels map[string]string `json:"labels"`
 	} `json:"configuration"`
-}
-
-func (v appleVolume) name() string {
-	if v.Name != "" {
-		return v.Name
-	}
-	return v.Configuration.Name
-}
-
-func (v appleVolume) labels() map[string]string {
-	if v.Labels != nil {
-		return v.Labels
-	}
-	return v.Configuration.Labels
 }
 
 func (a *Apple) inspectContainer(name string) (*appleContainer, error) {
@@ -102,7 +83,7 @@ func (a *Apple) inspectContainer(name string) (*appleContainer, error) {
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		return nil, fmt.Errorf("parse container inspect output: %w", err)
 	}
-	// 0.4 系は存在しないコンテナで空配列(exit 0)を返す
+	// 念のため空配列(exit 0)も不在として扱う
 	if len(entries) == 0 {
 		return nil, nil
 	}
@@ -117,7 +98,7 @@ func isNotFound(err error) bool {
 }
 
 func (a *Apple) ImageExists(tag string) bool {
-	_, err := a.r.Output("images", "inspect", tag)
+	_, err := a.r.Output("image", "inspect", tag)
 	return err == nil
 }
 
@@ -143,7 +124,7 @@ func (a *Apple) ContainerState(name string) (string, error) {
 	if err != nil || entry == nil {
 		return "", err
 	}
-	return string(entry.Status), nil
+	return entry.Status.State, nil
 }
 
 func (a *Apple) ContainerLabel(name, key string) (string, error) {
@@ -225,7 +206,7 @@ func (a *Apple) VolumeSiteLabel(name, key string) (string, bool, error) {
 	if len(entries) == 0 {
 		return "", false, nil
 	}
-	return entries[0].labels()[key], true, nil
+	return entries[0].Configuration.Labels[key], true, nil
 }
 
 func (a *Apple) VolumeCreate(name string, labels map[string]string) error {
@@ -262,12 +243,56 @@ func (a *Apple) ListBoxes(siteLabel, workdirLabel string) ([]Box, error) {
 		boxes = append(boxes, Box{
 			Name:       e.Configuration.ID,
 			Site:       site,
-			State:      string(e.Status),
+			State:      e.Status.State,
 			Workdir:    e.Configuration.Labels[workdirLabel],
 			RunningFor: "-", // Apple container は起動時刻を公開しない
 		})
 	}
 	return boxes, nil
+}
+
+// containerGateway は inspect から vmnet ゲートウェイ IP を得る。
+func (a *Apple) containerGateway(name string) (string, error) {
+	entry, err := a.inspectContainer(name)
+	if err != nil {
+		return "", err
+	}
+	if entry == nil {
+		return "", fmt.Errorf("no such container %q", name)
+	}
+	nets := entry.Status.Networks
+	if len(nets) == 0 || nets[0].IPv4Gateway == "" {
+		return "", fmt.Errorf("container %q has no network info (is it running?)", name)
+	}
+	return nets[0].IPv4Gateway, nil
+}
+
+// BridgeAddrs: Apple container の VM からホストの loopback には届かないため、
+// vmnet のゲートウェイ IP(ホスト側インターフェース)にバインドし、
+// コンテナも同じ IP へ接続する。
+func (a *Apple) BridgeAddrs(name string) (string, string, error) {
+	gw, err := a.containerGateway(name)
+	return gw, gw, err
+}
+
+// DialContainerPort: ホストからコンテナ IP へ直接 TCP も張れるが、それでは
+// コンテナ内で 127.0.0.1 にバインドしたサーバー(OAuth コールバックの通例)に
+// 届かない。docker バックエンドと同様に exec + socat でコンテナの netns 内
+// から loopback へ接続する。
+func (a *Apple) DialContainerPort(name string, port int) (io.ReadWriteCloser, error) {
+	// socat 追加前に作られたイメージへの分かりやすい導線を出す
+	// (which は slim イメージに無いことがあるため socat 自身を叩く)
+	a.socatOnce.Do(func() {
+		if _, err := a.r.Output("exec", name, "socat", "-V"); err != nil {
+			a.socatErr = fmt.Errorf(
+				"socat not found in the box image (rebuild it with 'tcb run <box> --rebuild')")
+		}
+	})
+	if a.socatErr != nil {
+		return nil, a.socatErr
+	}
+	return a.r.Stream("exec", "--interactive", name,
+		"socat", "STDIO", fmt.Sprintf("TCP:127.0.0.1:%d", port))
 }
 
 func (a *Apple) ListVolumes(labelKey string) ([]string, error) {
@@ -281,8 +306,8 @@ func (a *Apple) ListVolumes(labelKey string) ([]string, error) {
 	}
 	var names []string
 	for _, e := range entries {
-		if _, ok := e.labels()[labelKey]; ok {
-			names = append(names, e.name())
+		if _, ok := e.Configuration.Labels[labelKey]; ok {
+			names = append(names, e.Configuration.Name)
 		}
 	}
 	return names, nil

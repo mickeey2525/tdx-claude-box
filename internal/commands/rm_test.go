@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -26,6 +27,18 @@ func (f *fakeRunner) Interactive(args ...string) error {
 	f.calls = append(f.calls, args)
 	return nil
 }
+
+func (f *fakeRunner) Stream(args ...string) (io.ReadWriteCloser, error) {
+	f.calls = append(f.calls, args)
+	return nopStream{}, nil
+}
+
+// nopStream はテスト用の何もしない双方向ストリーム。
+type nopStream struct{}
+
+func (nopStream) Read(p []byte) (int, error)  { return 0, io.EOF }
+func (nopStream) Write(p []byte) (int, error) { return len(p), nil }
+func (nopStream) Close() error                { return nil }
 
 func (f *fakeRunner) called(prefix ...string) bool {
 	for _, call := range f.calls {
