@@ -287,6 +287,33 @@ func TestBridgePortInUseStillOpens(t *testing.T) {
 	}
 }
 
+func TestBridgePrearmPorts(t *testing.T) {
+	// URL が届く前(=ヘッドレスでブラウザ起動がスキップされるケース)でも
+	// 事前指定のポートには中継が張られている
+	port := freePort(t)
+	log := &syncBuffer{}
+	b, err := Start(Config{
+		BindIP:      "127.0.0.1",
+		Dial:        func(port int) (io.ReadWriteCloser, error) { return nil, fmt.Errorf("unused") },
+		Open:        func(u string) error { return nil },
+		Log:         log,
+		PrearmPorts: []int{port},
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer b.Close()
+
+	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatalf("prearmed relay not listening: %v", err)
+	}
+	conn.Close()
+	if !strings.Contains(log.String(), "forwarding") {
+		t.Errorf("expected forwarding log; got %q", log.String())
+	}
+}
+
 func TestBridgeClose(t *testing.T) {
 	opened := make(chan string, 1)
 	b, err := Start(Config{

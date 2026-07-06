@@ -38,7 +38,7 @@ cmd/tcb → internal/cli(ディスパッチ、--backend/TCB_BACKEND 解釈)
 ```
 
 - **internal/engine**: コンテナランタイム抽象。全ランタイム呼び出しは `Runner` インターフェース(Output/Interactive/Stream)経由で、テストは `fakeRunner` を注入する。新しい操作を足すときは Engine インターフェース+両実装+両テストをセットで
-- **internal/bridge**: セッション中の URL ブリッジ。box 内の `xdg-open` シムが `TCB_BRIDGE`(exec 時の env、セッション毎)宛てに URL を1行送ると、ホスト側で URL 中の localhost コールバックポート(`redirect_uri` 等)に中継リスナーを張ってからブラウザで開く。これで Claude Code の MCP OAuth が box 内で完結する。ホスト→box の中継は両バックエンドとも `exec + socat`(コンテナ内 loopback バインドのサーバーに届かせるため。Apple のバインド先ゲートウェイ IP は inspect の networks から取得)。ブリッジが組めなくても警告のみでセッションは続行
+- **internal/bridge**: セッション中の URL ブリッジ。2つの経路がある: (1) box 内の `xdg-open` シムが `TCB_BRIDGE`(exec 時の env、セッション毎)宛てに URL を1行送ると、URL 中の localhost コールバックポート(`redirect_uri` 等)に中継を張ってからホストブラウザで開く。(2) **Claude Code はヘッドレス環境でブラウザ起動をスキップする**(xdg-open が呼ばれない、実機確認)ため、既知の固定コールバックポート(3118 + `TCB_BRIDGE_PORTS`)はセッション開始時から事前に中継を張る — ユーザーは端末の URL をクリックするだけで MCP OAuth が完結する。ホスト→box の中継は両バックエンドとも `exec + socat`(コンテナ内 loopback バインドのサーバーに届かせるため。Apple のバインド先ゲートウェイ IP は inspect の networks から取得)。ブリッジが組めなくても警告のみでセッションは続行
 - **internal/config**: 命名規則とラベルの一元管理。コンテナ `tcb-<box>`、ボリューム `tcb-<box>-home`、ラベル `tcb.site`(box名)/ `tcb.workdir` / `tcb.tdsite`(実際のTD site)
 - **internal/site**: box 名バリデーションと `DeriveTDSite`(box 名 `us01-7060` → TD site `us01` の自動導出。公式 site リストをハードコード)
 - **box の概念**: 隔離単位は「box」で、box 名と TD site は別物(`--site` で明示、通常は自動導出)。1 box = 1 コンテナ + 1 HOME ボリューム。同 box への2セッション目は exec で同居

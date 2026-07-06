@@ -88,14 +88,20 @@ box 専用ボリュームに永続化されるので、box を消すまで再入
 
 ## ブラウザ認証(MCP OAuth など)
 
-box 内のツールがブラウザを開こうとすると、URL は自動的に**ホストのブラウザ**で
-開き、OAuth の `localhost` コールバックは box 内へ中継される(tcb の URL
-ブリッジ)。たとえば Claude Code に Atlassian リモート MCP を追加して `/mcp` で
-認証するフローは box 内でそのまま完結し、トークンは box の HOME ボリュームに
-永続化される。
+box 内の OAuth フローはホストのブラウザで完結する(tcb の URL ブリッジ)。
+たとえば Claude Code に Atlassian リモート MCP を追加して `/mcp` で認証する
+場合、表示された URL を端末で Cmd+クリック(またはコピー)してホストの
+ブラウザで開けば、OAuth の `localhost` コールバックは box 内の claude へ
+中継されて認証が完了する。トークンは box の HOME ボリュームに永続化される。
 
-この中継(Docker バックエンド)はイメージ内の socat を使うため、socat 追加前に
-作った box では `tcb run <box> --rebuild` で作り直しが必要。
+仕組み: Claude Code はコンテナ内ではブラウザ起動をスキップして URL 表示に
+直行するため、tcb はセッション開始時からコールバックポート(3118)の中継を
+張っておく。他のポートが必要なら `TCB_BRIDGE_PORTS=8080,9000` のように追加
+できる。ツールが `xdg-open` で URL を開こうとした場合は、ホストのブラウザが
+自動で開き、URL 中の `redirect_uri` のポートにも動的に中継が張られる。
+
+この中継はイメージ内の socat を使うため、socat 追加前に作った box では
+`tcb rm <box> --keep-volume` → `tcb run <box> --rebuild` で作り直しが必要。
 
 ## イメージのカスタマイズ(ツールの追加)
 

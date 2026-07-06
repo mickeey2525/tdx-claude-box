@@ -33,4 +33,12 @@ RC
     chown tcb:tcb "$home/.bashrc"
 fi
 
+# ネイティブ版 claude は $HOME/.local/bin/claude に自分がいる前提で
+# インストール状態を検査し、無いと "run claude install to repair" と警告する。
+# イメージ内の実体(/opt/claude)へ symlink して黙らせる。ln -sf なので
+# --rebuild 後の再起動でも常にイメージ側の実体を指す。
+mkdir -p "$home/.local/bin"
+ln -sf /opt/claude/.local/bin/claude "$home/.local/bin/claude"
+chown -R tcb:tcb "$home/.local"
+
 exec sleep infinity
