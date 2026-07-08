@@ -47,8 +47,11 @@ tcb doctor                # 環境診断
 tcb run ap01 --rebuild    # イメージを再ビルドして tdx / claude-code を最新に更新
 ```
 
-イメージには `@treasuredata/tdx` と `@anthropic-ai/claude-code` の最新版が入る
+イメージには `@treasuredata/tdx` と `@anthropic-ai/claude-code` の最新版に加え、
+開発でよく使うツール(`gh` / `uv` / `bun` / `mise`、ほか git・jq・ripgrep・make 等)が入る
 (`--rebuild` はキャッシュなしでビルドするので確実に更新される)。
+`mise install` したランタイムや `uv tool install` したツールは box の HOME
+ボリュームに保存され、Claude Code のセッションからもそのまま使える。
 バージョンを固定したい場合は環境変数で指定する:
 
 ```sh

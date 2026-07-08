@@ -101,9 +101,11 @@
 - **バックエンド**: Docker と Apple container の2実装(CLI を子プロセスで叩く。SDK 依存なし)。
   `internal/engine` の Engine インターフェースに抽象化し、自動検出(docker 優先)または
   `--backend docker|apple` / `TCB_BACKEND` で選択
-- **イメージ**: リポジトリ内 Dockerfile(バイナリに埋め込み)。`node:24-slim` ベースに
+- **イメージ**: リポジトリ内 Dockerfile(バイナリに埋め込み)。`node:24-trixie-slim` ベース
+  (Debian を明示ピン。bookworm の glibc 2.36 は mise 等のプレビルドバイナリが動かない)に
   `@anthropic-ai/claude-code` と `@treasuredata/tdx` を既定 `@latest` でインストール
-  (+ git, ripgrep 等 Claude Code が使う最低限のツール)。
+  (+ git, ripgrep 等 Claude Code が使うツールと、gh / uv / bun / mise 等の開発ツール。
+  mise の shims と `~/.local/bin` は ENV PATH に焼き込み、非対話シェルからも届く)。
   `--rebuild` は --no-cache でビルドするため最新に追従できる。
   固定したい場合は `TCB_TDX_VERSION` / `TCB_CLAUDE_CODE_VERSION` で build-arg を上書き。
   ツールを追加したい場合は `~/.config/tcb/Dockerfile`(FROM tcb:base)で
