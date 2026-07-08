@@ -314,6 +314,124 @@ func TestBridgePrearmPorts(t *testing.T) {
 	}
 }
 
+// deadStream は「接続拒否された box」を装う(書けるが応答なしで即 EOF)。
+type deadStream struct{}
+
+func (deadStream) Read(p []byte) (int, error)  { return 0, io.EOF }
+func (deadStream) Write(p []byte) (int, error) { return len(p), nil }
+func (deadStream) Close() error                { return nil }
+
+// startEcho は loopback の echo サーバーを立てて、その Dialer を返す。
+func startEcho(t *testing.T) Dialer {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("echo listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				io.Copy(conn, conn)
+			}()
+		}
+	}()
+	return func(port int) (io.ReadWriteCloser, error) {
+		return net.Dial("tcp", ln.Addr().String())
+	}
+}
+
+// roundtrip は port へ HTTP リクエスト風のチャンクを送り、応答を全部読む。
+func roundtrip(t *testing.T, port int, msg string) (string, error) {
+	t.Helper()
+	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte(msg)); err != nil {
+		return "", err
+	}
+	conn.(*net.TCPConn).CloseWrite()
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	got, err := io.ReadAll(conn)
+	return string(got), err
+}
+
+func TestSharedRelayRoutesToListeningBox(t *testing.T) {
+	// 自 box は待ち受けていない(dead)、別の box が待ち受けている状況で、
+	// 共有ポートへのコールバックが別 box に届くこと(先頭チャンクの再送込み)
+	peer := startEcho(t)
+	port := freePort(t)
+	b, err := Start(Config{
+		BindIP:      "127.0.0.1",
+		Dial:        func(port int) (io.ReadWriteCloser, error) { return deadStream{}, nil },
+		Peers:       func() []Dialer { return []Dialer{peer} },
+		Open:        func(u string) error { return nil },
+		Log:         &syncBuffer{},
+		PrearmPorts: []int{port},
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer b.Close()
+
+	msg := "GET /cb?code=abc HTTP/1.1\r\n\r\n"
+	got, err := roundtrip(t, port, msg)
+	if err != nil {
+		t.Fatalf("roundtrip: %v", err)
+	}
+	if got != msg {
+		t.Errorf("routed response = %q, want %q", got, msg)
+	}
+}
+
+func TestSharedRelayTakeover(t *testing.T) {
+	// 共有ポートを他セッション(相当)が握っている間は再試行し、
+	// 解放されたら引き継いで自 box へ中継できること
+	holder, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("holder listen: %v", err)
+	}
+	port := holder.Addr().(*net.TCPAddr).Port
+
+	log := &syncBuffer{}
+	b, err := Start(Config{
+		BindIP:        "127.0.0.1",
+		Dial:          startEcho(t),
+		Open:          func(u string) error { return nil },
+		Log:           log,
+		PrearmPorts:   []int{port},
+		RetryInterval: 30 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer b.Close()
+	if !strings.Contains(log.String(), "held by another") {
+		t.Errorf("expected busy note; log: %q", log.String())
+	}
+
+	holder.Close()
+	msg := "GET /cb HTTP/1.1\r\n\r\n"
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := roundtrip(t, port, msg)
+		if err == nil && got == msg {
+			return // 引き継ぎ完了
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("takeover did not happen: got %q, err %v", got, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestBridgeClose(t *testing.T) {
 	opened := make(chan string, 1)
 	b, err := Start(Config{

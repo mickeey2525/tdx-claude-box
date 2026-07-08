@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/mickeey2525/tdx-claude-box/internal/bridge"
+	"github.com/mickeey2525/tdx-claude-box/internal/config"
 	"github.com/mickeey2525/tdx-claude-box/internal/engine"
 )
 
@@ -43,6 +44,7 @@ func startSessionBridge(e engine.Engine, name string) (*bridge.Bridge, string) {
 			Dial: func(port int) (io.ReadWriteCloser, error) {
 				return e.DialContainerPort(name, port)
 			},
+			Peers:       func() []bridge.Dialer { return peerDialers(e, name) },
 			PrearmPorts: prearmPorts(),
 		})
 		if err == nil {
@@ -51,4 +53,25 @@ func startSessionBridge(e engine.Engine, name string) (*bridge.Bridge, string) {
 	}
 	fmt.Fprintf(os.Stderr, "tcb: warning: URL bridge disabled (%v); browser URLs will only be printed\n", err)
 	return nil, ""
+}
+
+// peerDialers は自分以外の実行中 box への Dialer を返す。共有コールバック
+// ポート(3118 等)は全 box で同じため、ブリッジを握っているセッションが
+// 実際に待ち受けている box へ振り分けるのに使う。列挙失敗時は空。
+func peerDialers(e engine.Engine, self string) []bridge.Dialer {
+	boxes, err := e.ListBoxes(config.LabelSite, config.LabelWorkdir)
+	if err != nil {
+		return nil
+	}
+	var dialers []bridge.Dialer
+	for _, box := range boxes {
+		if box.Name == self || box.State != "running" {
+			continue
+		}
+		name := box.Name
+		dialers = append(dialers, func(port int) (io.ReadWriteCloser, error) {
+			return e.DialContainerPort(name, port)
+		})
+	}
+	return dialers
 }
