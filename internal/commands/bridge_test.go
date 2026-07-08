@@ -77,6 +77,31 @@ func TestPrearmPorts(t *testing.T) {
 	}
 }
 
+func TestPeerDialersExcludesSelfAndStopped(t *testing.T) {
+	r := &fakeRunner{onOutput: func(args []string) (string, error) {
+		if args[0] == "ps" {
+			return "tcb-a\tap01\trunning\t/w\t2 days\n" +
+				"tcb-b\tus01\trunning\t/w\t1 day\n" +
+				"tcb-c\tus02\texited\t/w\t1 day\n", nil
+		}
+		return "", nil
+	}}
+	e := engine.NewDockerWithRunner(r)
+	dialers := peerDialers(e, "tcb-a")
+	if len(dialers) != 1 {
+		t.Fatalf("len(dialers) = %d, want 1 (self and stopped excluded)", len(dialers))
+	}
+	// 唯一の候補は tcb-b への接続であること
+	conn, err := dialers[0](3118)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer conn.Close()
+	if !r.called("exec", "--interactive", "tcb-b") {
+		t.Errorf("dialer should target tcb-b; calls: %v", r.calls)
+	}
+}
+
 func TestStartSessionBridgeNilOnError(t *testing.T) {
 	r := &fakeRunner{onOutput: func(args []string) (string, error) {
 		return `[{"status":{"state":"running","networks":[]},"configuration":{"labels":{},"id":"tcb-ap01"}}]`, nil

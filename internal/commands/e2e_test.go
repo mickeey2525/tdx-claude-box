@@ -88,13 +88,16 @@ func runBridgeE2E(t *testing.T, e engine.Engine, bin string, rmArgs []string) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	// セッションと同じ構成でブリッジを起動(ブラウザは開かず記録する)
+	// セッションと同じ構成でブリッジを起動(ブラウザは開かず記録する)。
+	// cbPort を PrearmPorts に入れることで、コールバックが共有ポートの
+	// 振り分け(probe: 先頭チャンク書き込み→応答確認)を通ることも検証する。
 	opened := make(chan string, 1)
 	b, err := bridge.Start(bridge.Config{
-		BindIP: bindIP,
-		Dial:   func(port int) (io.ReadWriteCloser, error) { return e.DialContainerPort(box, port) },
-		Open:   func(u string) error { opened <- u; return nil },
-		Log:    os.Stderr,
+		BindIP:      bindIP,
+		Dial:        func(port int) (io.ReadWriteCloser, error) { return e.DialContainerPort(box, port) },
+		Open:        func(u string) error { opened <- u; return nil },
+		Log:         os.Stderr,
+		PrearmPorts: []int{cbPort},
 	})
 	if err != nil {
 		t.Fatalf("bridge start: %v", err)
