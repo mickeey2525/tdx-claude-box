@@ -33,6 +33,14 @@ RC
     chown tcb:tcb "$home/.bashrc"
 fi
 
+# 対話シェル(tcb shell)では mise の shell hook を有効にする。
+# 非対話シェル(Claude Code の Bash ツール等)はイメージの ENV PATH に
+# 入れた shims 経由で mise のツールに届く
+if ! grep -q 'mise activate' "$home/.bashrc" 2>/dev/null; then
+    printf '%s\n' 'command -v mise >/dev/null && eval "$(mise activate bash)"' >> "$home/.bashrc"
+    chown tcb:tcb "$home/.bashrc"
+fi
+
 # ネイティブ版 claude は $HOME/.local/bin/claude に自分がいる前提で
 # インストール状態を検査し、無いと "run claude install to repair" と警告する。
 # イメージ内の実体(/opt/claude)へ symlink して黙らせる。ln -sf なので
